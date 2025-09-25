@@ -8,8 +8,11 @@ from fastmcp import FastMCP
 mcp = FastMCP("Poke-BFL Image Generation Server")
 
 # Fal.ai API configuration
-FAL_API_KEY = "f0f70e81-c5be-493d-8669-383edb142dfc:c884bec7933d703906f8ac7547b83235"
+FAL_API_KEY = os.environ.get("FAL_API_KEY")
 FAL_API_URL = "https://fal.run/fal-ai/flux-pro"
+
+if not FAL_API_KEY:
+    raise ValueError("FAL_API_KEY environment variable is required")
 
 # Simple in-memory storage for generation status
 generation_status = {}
