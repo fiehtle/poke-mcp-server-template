@@ -57,7 +57,213 @@ def make_attio_request(endpoint: str, method: str = "GET", data: dict = None) ->
     except requests.exceptions.RequestException as e:
         raise Exception(f"Network error: {str(e)}")
 
-@mcp.tool(description="Search for a person/contact in Attio by name")
+# ============================================================================
+# DISCOVERY TOOLS - Let Poke discover what's possible in Attio
+# ============================================================================
+
+@mcp.tool(description="List all available object types in Attio workspace")
+def list_available_objects() -> dict:
+    """
+    Get a list of all object types available in your Attio workspace.
+    Use this to discover what objects you can query (people, companies, deals, etc.)
+    
+    Returns:
+        Dictionary with list of available object types and their metadata
+    """
+    try:
+        result = make_attio_request("/objects")
+        
+        if not result.get("data"):
+            return {
+                "success": True,
+                "objects": [],
+                "message": "No objects found in workspace"
+            }
+        
+        # Extract object types and metadata
+        objects = []
+        for obj in result["data"]:
+            objects.append({
+                "api_slug": obj.get("api_slug"),  # e.g., "people", "companies"
+                "singular_noun": obj.get("singular_noun"),  # e.g., "Person", "Company"
+                "plural_noun": obj.get("plural_noun"),  # e.g., "People", "Companies"
+                "id": obj.get("id", {}).get("object_id")
+            })
+        
+        return {
+            "success": True,
+            "count": len(objects),
+            "objects": objects,
+            "message": f"Found {len(objects)} object types in workspace"
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to list objects: {str(e)}"
+        }
+
+@mcp.tool(description="Get schema/attributes for a specific object type in Attio")
+def get_object_schema(object_type: str) -> dict:
+    """
+    Get the schema and available attributes for a specific object type.
+    This tells you what fields you can query, filter, and update.
+    
+    Args:
+        object_type: The object type (e.g., "people", "companies", "deals")
+                    Use list_available_objects() to see valid types
+    
+    Returns:
+        Dictionary with object schema including all attributes and their types
+    """
+    try:
+        # Get object attributes
+        result = make_attio_request(f"/objects/{object_type}/attributes")
+        
+        if not result.get("data"):
+            return {
+                "success": False,
+                "message": f"No attributes found for object type '{object_type}'",
+                "suggestion": "Check the object_type spelling or use list_available_objects() to see valid types"
+            }
+        
+        # Extract attribute information
+        attributes = {}
+        for attr in result["data"]:
+            attr_slug = attr.get("api_slug")
+            attributes[attr_slug] = {
+                "title": attr.get("title"),
+                "type": attr.get("type"),
+                "is_required": attr.get("is_required", False),
+                "is_unique": attr.get("is_unique", False),
+                "is_multiselect": attr.get("is_multiselect", False),
+                "description": attr.get("description")
+            }
+        
+        return {
+            "success": True,
+            "object_type": object_type,
+            "attribute_count": len(attributes),
+            "attributes": attributes,
+            "message": f"Found {len(attributes)} attributes for {object_type}"
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to get schema for '{object_type}': {str(e)}",
+            "suggestion": "Use list_available_objects() to see valid object types"
+        }
+
+# ============================================================================
+# UNIVERSAL QUERY TOOL - Query ANY object with ANY filters
+# ============================================================================
+
+@mcp.tool(description="Query Attio records with advanced filtering (supports ANY object type and ANY attributes)")
+def query_records(object_type: str, filters: dict = None, limit: int = 50, sorts: list = None) -> dict:
+    """
+    Universal query tool for Attio CRM. Query ANY object type with ANY filters.
+    This replaces specific search tools and supports advanced use cases.
+    
+    Examples:
+    - Search by name: query_records("people", {"name": {"$contains": "John"}})
+    - Find event attendees: query_records("people", {"events_attended": {"$contains": "TechConf 2024"}})
+    - Find by location: query_records("companies", {"location": {"$eq": "Austin"}})
+    - Find by tags: query_records("companies", {"tags": {"$contains": "VIP"}})
+    - Complex filters: query_records("deals", {"value": {"$gt": 100000}, "status": {"$eq": "open"}})
+    
+    Filter operators:
+    - $eq: equals
+    - $contains: contains (for text and arrays)
+    - $gt, $lt, $gte, $lte: greater/less than (for numbers/dates)
+    - See Attio API docs for full list
+    
+    Args:
+        object_type: Object type to query (use list_available_objects() to see options)
+        filters: Dictionary of filters (use get_object_schema() to see available attributes)
+        limit: Maximum number of records to return (default: 50)
+        sorts: List of sort specifications (optional)
+    
+    Returns:
+        Dictionary with matching records and their attributes
+    """
+    try:
+        # Build query payload
+        query_data = {
+            "limit": limit
+        }
+        
+        if filters:
+            query_data["filter"] = filters
+        
+        if sorts:
+            query_data["sorts"] = sorts
+        
+        # Make the query
+        result = make_attio_request(f"/objects/{object_type}/records/query", method="POST", data=query_data)
+        
+        if not result.get("data"):
+            return {
+                "success": True,
+                "found": False,
+                "count": 0,
+                "records": [],
+                "message": f"No {object_type} found matching the filters",
+                "filters_used": filters
+            }
+        
+        # Format results
+        records = []
+        for record in result["data"]:
+            record_info = {
+                "id": record.get("id", {}).get("record_id"),
+            }
+            
+            # Extract all attributes
+            values = record.get("values", {})
+            for key, value_list in values.items():
+                if value_list and len(value_list) > 0:
+                    # Get the actual value from the first item
+                    record_info[key] = value_list[0]
+            
+            records.append(record_info)
+        
+        return {
+            "success": True,
+            "found": True,
+            "count": len(records),
+            "object_type": object_type,
+            "records": records,
+            "message": f"Found {len(records)} {object_type} matching the filters",
+            "filters_used": filters
+        }
+    
+    except Exception as e:
+        error_str = str(e)
+        suggestion = ""
+        
+        # Provide helpful suggestions based on error
+        if "404" in error_str or "not found" in error_str.lower():
+            suggestion = f"Object type '{object_type}' may not exist. Use list_available_objects() to see valid types."
+        elif "400" in error_str or "bad request" in error_str.lower():
+            suggestion = "Filter syntax may be incorrect. Use get_object_schema() to see valid attributes."
+        
+        return {
+            "success": False,
+            "error": error_str,
+            "message": f"Failed to query {object_type}: {error_str}",
+            "suggestion": suggestion,
+            "filters_used": filters
+        }
+
+# ============================================================================
+# LEGACY SPECIFIC SEARCH TOOLS (Kept for backward compatibility)
+# Prefer using query_records() for more flexibility
+# ============================================================================
+
+@mcp.tool(description="[LEGACY] Search for a person/contact in Attio by name - Consider using query_records() instead")
 def search_person(name: str, limit: int = 10) -> dict:
     """
     Search for a person/contact in Attio CRM by name.
@@ -122,7 +328,7 @@ def search_person(name: str, limit: int = 10) -> dict:
             "message": f"Failed to search for person: {str(e)}"
         }
 
-@mcp.tool(description="Search for a company in Attio by name")
+@mcp.tool(description="[LEGACY] Search for a company in Attio by name - Consider using query_records() instead")
 def search_company(name: str, limit: int = 10) -> dict:
     """
     Search for a company in Attio CRM by name.
@@ -186,7 +392,116 @@ def search_company(name: str, limit: int = 10) -> dict:
             "message": f"Failed to search for company: {str(e)}"
         }
 
-@mcp.tool(description="Add a note to a person's record in Attio")
+# ============================================================================
+# UNIVERSAL NOTE CREATION TOOL - Create notes for ANY object type
+# ============================================================================
+
+@mcp.tool(description="Create a note and attach it to any Attio record (person, company, deal, etc.)")
+def create_note(parent_object: str, parent_identifier: str, content: str, title: str = "Note") -> dict:
+    """
+    Universal note creation tool. Create a note and attach it to ANY object type.
+    This replaces specific note tools (add_note_to_person, add_note_to_company, etc.)
+    
+    Examples:
+    - Add note to person: create_note("people", "John Smith", "Call notes from meeting...", "Meeting Notes")
+    - Add note to company: create_note("companies", "Acme Corp", "Partnership discussion...", "Partnership Notes")
+    - Add note to deal: create_note("deals", "Q4 Deal", "Updated terms...", "Deal Update")
+    
+    Args:
+        parent_object: Object type (use list_available_objects() to see options)
+        parent_identifier: Name or ID of the record to attach note to
+        content: The note content (can be from Notion, meeting notes, etc.)
+        title: Title for the note (default: "Note")
+    
+    Returns:
+        Dictionary with success status and note information
+    """
+    try:
+        # Determine if identifier is an ID or name
+        # If it looks like a record ID (UUID format), use it directly
+        # Otherwise, search for the record by name
+        
+        parent_record_id = None
+        display_name = parent_identifier
+        
+        # Simple heuristic: if it contains hyphens and is long, probably an ID
+        if "-" in parent_identifier and len(parent_identifier) > 30:
+            parent_record_id = parent_identifier
+        else:
+            # Search for the record by name
+            search_result = query_records(
+                object_type=parent_object,
+                filters={"name": {"$contains": parent_identifier}},
+                limit=5
+            )
+            
+            if not search_result.get("found") or not search_result.get("records"):
+                return {
+                    "success": False,
+                    "message": f"Could not find {parent_object} matching '{parent_identifier}'",
+                    "suggestion": f"Try query_records('{parent_object}', {{'name': {{'$contains': '...'}}}}) to find the correct name"
+                }
+            
+            records = search_result["records"]
+            if len(records) > 1:
+                record_names = [r.get("name", {}).get("value", "Unknown") for r in records]
+                return {
+                    "success": False,
+                    "message": f"Found {len(records)} {parent_object} matching '{parent_identifier}': {', '.join(record_names)}",
+                    "suggestion": "Please be more specific with the name, or provide the record ID directly",
+                    "matches": record_names
+                }
+            
+            record = records[0]
+            parent_record_id = record.get("id")
+            display_name = record.get("name", {}).get("value", parent_identifier)
+        
+        if not parent_record_id:
+            return {
+                "success": False,
+                "message": f"Could not determine record ID for '{parent_identifier}'",
+                "error": "Missing record ID"
+            }
+        
+        # Create the note
+        note_data = {
+            "data": {
+                "parent_object": parent_object,
+                "parent_record_id": parent_record_id,
+                "title": title,
+                "format": "plaintext",
+                "content": content
+            }
+        }
+        
+        result = make_attio_request("/notes", method="POST", data=note_data)
+        
+        return {
+            "success": True,
+            "message": f"Successfully added note '{title}' to {parent_object} '{display_name}'",
+            "note": {
+                "id": result.get("data", {}).get("id", {}).get("note_id"),
+                "title": title,
+                "attached_to": display_name,
+                "parent_object": parent_object,
+                "parent_record_id": parent_record_id
+            }
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to create note: {str(e)}",
+            "suggestion": "Use list_available_objects() to see valid object types"
+        }
+
+# ============================================================================
+# LEGACY NOTE TOOLS (Kept for backward compatibility)
+# Prefer using create_note() for more flexibility
+# ============================================================================
+
+@mcp.tool(description="[LEGACY] Add a note to a person's record in Attio - Consider using create_note() instead")
 def add_note_to_person(person_name: str, note_content: str, note_title: str = "Note") -> dict:
     """
     Add a note to a person's record in Attio CRM.
@@ -265,7 +580,7 @@ def add_note_to_person(person_name: str, note_content: str, note_title: str = "N
             "message": f"Failed to add note to person: {str(e)}"
         }
 
-@mcp.tool(description="Add a note to a company's record in Attio")
+@mcp.tool(description="[LEGACY] Add a note to a company's record in Attio - Consider using create_note() instead")
 def add_note_to_company(company_name: str, note_content: str, note_title: str = "Note") -> dict:
     """
     Add a note to a company's record in Attio CRM.
@@ -355,11 +670,25 @@ def get_server_info() -> dict:
         
         return {
             "server_name": "Poke-Attio CRM Integration",
-            "version": "1.0.0",
-            "description": "MCP server for Attio CRM - read and write CRM data via natural language",
+            "version": "2.0.0",
+            "description": "MCP server for Attio CRM - Generic tools for ANY object type and ANY filters",
             "environment": os.environ.get("ENVIRONMENT", "development"),
             "python_version": os.sys.version.split()[0],
-            "available_tools": ["search_person", "search_company", "add_note_to_person", "add_note_to_company", "get_server_info"],
+            "available_tools": {
+                "recommended": [
+                    "list_available_objects - Discover what objects exist",
+                    "get_object_schema - See available attributes for an object",
+                    "query_records - Query ANY object with ANY filters",
+                    "create_note - Add notes to ANY object type",
+                    "get_server_info - Server status"
+                ],
+                "legacy": [
+                    "search_person - Use query_records() instead",
+                    "search_company - Use query_records() instead",
+                    "add_note_to_person - Use create_note() instead",
+                    "add_note_to_company - Use create_note() instead"
+                ]
+            },
             "status": "Live - Connected to Attio CRM",
             "workspace": {
                 "name": workspace_info.get("workspace_name"),
@@ -371,10 +700,10 @@ def get_server_info() -> dict:
     except Exception as e:
         return {
             "server_name": "Poke-Attio CRM Integration",
-            "version": "1.0.0",
-            "description": "MCP server for Attio CRM",
+            "version": "2.0.0",
+            "description": "MCP server for Attio CRM - Generic tools for ANY object type and ANY filters",
             "environment": os.environ.get("ENVIRONMENT", "development"),
-            "available_tools": ["search_person", "search_company", "add_note_to_person", "add_note_to_company", "get_server_info"],
+            "available_tools": ["list_available_objects", "get_object_schema", "query_records", "create_note", "get_server_info"],
             "status": "Error connecting to Attio",
             "error": str(e)
         }
