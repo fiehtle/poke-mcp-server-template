@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: fastmcp-server
+    name: poke-attio-mcp
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python src/server.py
@@ -9,3 +9,5 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: ATTIO_API_KEY
+        sync: false  # Must be set manually in Render dashboard

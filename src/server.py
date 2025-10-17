@@ -1,183 +1,233 @@
 #!/usr/bin/env python3
 import os
 import requests
-import time
-import threading
+from typing import Optional
+from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-mcp = FastMCP("Poke-BFL Image Generation Server")
+# Load environment variables (for local development)
+load_dotenv()
 
-# Fal.ai API configuration
-FAL_API_KEY = os.environ.get("FAL_API_KEY")
-FAL_API_URL = "https://fal.run/fal-ai/flux-pro"
+mcp = FastMCP("Poke-Attio CRM Integration")
 
-if not FAL_API_KEY:
-    raise ValueError("FAL_API_KEY environment variable is required")
+# Attio API configuration
+ATTIO_API_KEY = os.environ.get("ATTIO_API_KEY")
+ATTIO_BASE_URL = "https://api.attio.com/v2"
 
-# Simple in-memory storage for generation status
-generation_status = {}
+if not ATTIO_API_KEY:
+    raise ValueError("ATTIO_API_KEY environment variable is required")
 
-def _generate_image_async(generation_id: str, prompt: str, image_size: str):
-    """Background function to generate image via Fal.ai API"""
+# Helper function to make Attio API requests
+def make_attio_request(endpoint: str, method: str = "GET", data: dict = None) -> dict:
+    """
+    Make a request to Attio API with proper authentication
+    
+    Args:
+        endpoint: API endpoint (e.g., '/self', '/objects/people/records/query')
+        method: HTTP method (GET, POST, PATCH, DELETE)
+        data: Request payload for POST/PATCH requests
+    
+    Returns:
+        Response data as dictionary
+    """
+    url = f"{ATTIO_BASE_URL}{endpoint}"
+    headers = {
+        "Authorization": f"Bearer {ATTIO_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
     try:
-        headers = {
-            "Authorization": f"Key {FAL_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "prompt": prompt,
-            "image_size": image_size,
-            "num_inference_steps": 28,
-            "enable_safety_checker": True
-        }
-        
-        response = requests.post(FAL_API_URL, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-        
-        if "images" in data and len(data["images"]) > 0:
-            image_url = data["images"][0]["url"]
-            # Update existing status instead of replacing it
-            generation_status[generation_id].update({
-                "status": "completed",
-                "image_url": image_url,
-                "success": True,
-                "message": "Image generated successfully!"
-            })
+        if method == "GET":
+            response = requests.get(url, headers=headers, timeout=10)
+        elif method == "POST":
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+        elif method == "PATCH":
+            response = requests.patch(url, headers=headers, json=data, timeout=10)
+        elif method == "DELETE":
+            response = requests.delete(url, headers=headers, timeout=10)
         else:
-            generation_status[generation_id].update({
-                "status": "failed",
-                "success": False,
-                "error": "Empty response from Fal.ai API"
-            })
+            raise ValueError(f"Unsupported HTTP method: {method}")
+        
+        response.raise_for_status()
+        return response.json()
+    
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HTTP {response.status_code}: {response.text}"
+        raise Exception(error_msg)
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Network error: {str(e)}")
+
+@mcp.tool(description="Search for a person/contact in Attio by name")
+def search_person(name: str, limit: int = 10) -> dict:
+    """
+    Search for a person/contact in Attio CRM by name.
+    Use this when asked questions like "What's the email of [person name]?"
+    
+    Args:
+        name: Full or partial name of the person to search for
+        limit: Maximum number of results to return (default: 10)
+    
+    Returns:
+        Dictionary with search results including contact details
+    """
+    try:
+        # Query people records
+        query_data = {
+            "filter": {
+                "name": {
+                    "$contains": name
+                }
+            },
+            "limit": limit,
+            "sorts": []
+        }
+        
+        result = make_attio_request("/objects/people/records/query", method="POST", data=query_data)
+        
+        if not result.get("data"):
+            return {
+                "success": True,
+                "found": False,
+                "message": f"No person found with name containing '{name}'",
+                "suggestion": "Try checking the spelling or using a different name variation"
+            }
+        
+        # Format results
+        people = []
+        for record in result["data"]:
+            person_info = {
+                "id": record.get("id", {}).get("record_id"),
+            }
+            
+            # Extract attributes (names, emails, etc.)
+            values = record.get("values", {})
+            for key, value_list in values.items():
+                if value_list and len(value_list) > 0:
+                    person_info[key] = value_list[0]
+            
+            people.append(person_info)
+        
+        return {
+            "success": True,
+            "found": True,
+            "count": len(people),
+            "message": f"Found {len(people)} person(s) matching '{name}'",
+            "people": people
+        }
+    
     except Exception as e:
-        generation_status[generation_id].update({
-            "status": "failed",
+        return {
             "success": False,
-            "error": str(e)
-        })
+            "error": str(e),
+            "message": f"Failed to search for person: {str(e)}"
+        }
 
-@mcp.tool(description="Start image generation using FLUX model. Returns generation ID for status checking.")
-def generate_image(prompt: str, width: int = 1024, height: int = 1024, style: str = "realistic") -> dict:
+@mcp.tool(description="Search for a company in Attio by name")
+def search_company(name: str, limit: int = 10) -> dict:
     """
-    Start generating an image from a text prompt using FLUX model.
+    Search for a company in Attio CRM by name.
     
     Args:
-        prompt: Text description of the image to generate
-        width: Image width in pixels (default: 1024)
-        height: Image height in pixels (default: 1024)
-        style: Image style - 'realistic', 'artistic', 'cartoon' (default: 'realistic')
+        name: Full or partial name of the company to search for
+        limit: Maximum number of results to return (default: 10)
     
     Returns:
-        Dictionary with generation ID and instructions to check status
+        Dictionary with search results including company details
     """
-    generation_id = f"flux_{int(time.time())}_{hash(prompt) % 10000}"
-    image_size = "square_hd"  # Default to 1024x1024
-    
-    # Initialize status
-    generation_status[generation_id] = {
-        "status": "processing",
-        "prompt": prompt,
-        "parameters": {
-            "width": width,
-            "height": height,
-            "style": style,
-            "image_size": image_size
-        },
-        "started_at": time.time()
-    }
-    
-    # Start background generation
-    thread = threading.Thread(target=_generate_image_async, args=(generation_id, prompt, image_size))
-    thread.daemon = True
-    thread.start()
-    
-    return {
-        "success": True,
-        "message": "Image generation started! Use check_generation_status to get the result.",
-        "generation_id": generation_id,
-        "prompt": prompt,
-        "parameters": {
-            "width": width,
-            "height": height,
-            "style": style,
-            "image_size": image_size
-        },
-        "status": "processing",
-        "note": "Generation takes 15-30 seconds. Check status with check_generation_status tool."
-    }
-
-@mcp.tool(description="Check the status of an image generation request")
-def check_generation_status(generation_id: str) -> dict:
-    """
-    Check the status of an image generation request.
-    
-    Args:
-        generation_id: The generation ID returned by generate_image
-    
-    Returns:
-        Dictionary with current status and image URL if completed
-    """
-    if generation_id not in generation_status:
-        return {
-            "success": False,
-            "message": "Generation ID not found",
-            "error": f"No generation found with ID: {generation_id}"
+    try:
+        # Query company records
+        query_data = {
+            "filter": {
+                "name": {
+                    "$contains": name
+                }
+            },
+            "limit": limit,
+            "sorts": []
         }
-    
-    status_info = generation_status[generation_id]
-    
-    if status_info["status"] == "processing":
-        elapsed = time.time() - status_info["started_at"]
+        
+        result = make_attio_request("/objects/companies/records/query", method="POST", data=query_data)
+        
+        if not result.get("data"):
+            return {
+                "success": True,
+                "found": False,
+                "message": f"No company found with name containing '{name}'",
+                "suggestion": "Try checking the spelling or using a different name variation"
+            }
+        
+        # Format results
+        companies = []
+        for record in result["data"]:
+            company_info = {
+                "id": record.get("id", {}).get("record_id"),
+            }
+            
+            # Extract attributes
+            values = record.get("values", {})
+            for key, value_list in values.items():
+                if value_list and len(value_list) > 0:
+                    company_info[key] = value_list[0]
+            
+            companies.append(company_info)
+        
         return {
             "success": True,
-            "status": "processing",
-            "message": f"Image generation in progress... ({elapsed:.1f}s elapsed)",
-            "generation_id": generation_id,
-            "prompt": status_info["prompt"],
-            "parameters": status_info["parameters"],
-            "elapsed_seconds": round(elapsed, 1)
+            "found": True,
+            "count": len(companies),
+            "message": f"Found {len(companies)} company(s) matching '{name}'",
+            "companies": companies
         }
-    elif status_info["status"] == "completed":
-        return {
-            "success": True,
-            "status": "completed",
-            "message": "Image generated successfully!",
-            "generation_id": generation_id,
-            "prompt": status_info["prompt"],
-            "parameters": status_info["parameters"],
-            "image_url": status_info["image_url"],
-            "note": "Image is ready! You can view it at the URL above."
-        }
-    else:  # failed
+    
+    except Exception as e:
         return {
             "success": False,
-            "status": "failed",
-            "message": "Image generation failed",
-            "generation_id": generation_id,
-            "prompt": status_info["prompt"],
-            "error": status_info["error"]
+            "error": str(e),
+            "message": f"Failed to search for company: {str(e)}"
         }
 
-@mcp.tool(description="Get information about the Poke-BFL MCP server and available tools")
+@mcp.tool(description="Get information about the Poke-Attio MCP server and available tools")
 def get_server_info() -> dict:
-    return {
-        "server_name": "Poke-BFL Image Generation Server",
-        "version": "1.0.0",
-        "description": "MCP server for FLUX image generation via Fal.ai API",
-        "environment": os.environ.get("ENVIRONMENT", "development"),
-        "python_version": os.sys.version.split()[0],
-        "available_tools": ["generate_image", "check_generation_status", "get_server_info"],
-        "status": "Live - FLUX Pro integration via Fal.ai"
-    }
+    """
+    Get information about the MCP server, workspace, and available tools.
+    """
+    try:
+        # Get workspace info from Attio
+        workspace_info = make_attio_request("/self")
+        
+        return {
+            "server_name": "Poke-Attio CRM Integration",
+            "version": "1.0.0",
+            "description": "MCP server for Attio CRM - read and write CRM data via natural language",
+            "environment": os.environ.get("ENVIRONMENT", "development"),
+            "python_version": os.sys.version.split()[0],
+            "available_tools": ["search_person", "search_company", "get_server_info"],
+            "status": "Live - Connected to Attio CRM",
+            "workspace": {
+                "name": workspace_info.get("workspace_name"),
+                "id": workspace_info.get("workspace_id"),
+                "active": workspace_info.get("active")
+            },
+            "permissions": workspace_info.get("scope", "").split()
+        }
+    except Exception as e:
+        return {
+            "server_name": "Poke-Attio CRM Integration",
+            "version": "1.0.0",
+            "description": "MCP server for Attio CRM",
+            "environment": os.environ.get("ENVIRONMENT", "development"),
+            "available_tools": ["search_person", "search_company", "get_server_info"],
+            "status": "Error connecting to Attio",
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     host = "0.0.0.0"
     
-    print(f"Starting Poke-BFL MCP server on {host}:{port}")
-    print("Server is running with live FLUX Pro integration - ready for testing with Poke!")
+    print(f"Starting Poke-Attio MCP server on {host}:{port}")
+    print("Server is running with live Attio CRM integration - ready for testing with Poke!")
+    print(f"API Key configured: {'Yes' if ATTIO_API_KEY else 'No'}")
     
     mcp.run(
         transport="http",

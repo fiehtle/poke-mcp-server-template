@@ -1,6 +1,13 @@
-# MCP Server Template
+# Poke-Attio MCP Server
 
-A minimal [FastMCP](https://github.com/jlowin/fastmcp) server template for Render deployment with streamable HTTP transport.
+A [FastMCP](https://github.com/jlowin/fastmcp) server that integrates Attio CRM with Poke AI assistant, enabling natural language interactions with your CRM data.
+
+**Features:**
+- 🔍 Search for people/contacts by name
+- 🏢 Search for companies
+- 📊 Get server and workspace information
+- 🚀 Easy deployment to Render
+- 🔐 Secure API key management
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/fiehtle/poke-mcp-server-template)
 
@@ -8,60 +15,166 @@ A minimal [FastMCP](https://github.com/jlowin/fastmcp) server template for Rende
 
 ### Setup
 
-Fork the repo, then run:
+1. Fork the repo, then clone it:
 
 ```bash
 git clone <your-repo-url>
-cd mcp-server-template
+cd poke-attio-mcp-server
+```
+
+2. Create and activate environment:
+
+```bash
 conda create -n mcp-server python=3.13
 conda activate mcp-server
 pip install -r requirements.txt
 ```
 
-### Test
+3. Create `.env` file from template:
+
+```bash
+cp .env.example .env
+```
+
+4. Get your Attio API key:
+   - Go to https://app.attio.com/settings/developers
+   - Click "+ New access token"
+   - Give it a name and select required scopes (recommend: all read-write permissions)
+   - Copy the API key
+
+5. Add your API key to `.env`:
+
+```bash
+ATTIO_API_KEY=your_api_key_here
+ENVIRONMENT=development
+```
+
+### Test Locally
+
+Start the server:
 
 ```bash
 python src/server.py
-# then in another terminal run:
+```
+
+In another terminal, test with MCP Inspector:
+
+```bash
 npx @modelcontextprotocol/inspector
 ```
 
 Open http://localhost:3000 and connect to `http://localhost:8000/mcp` using "Streamable HTTP" transport (NOTE THE `/mcp`!).
 
-## Deployment
+**Try these tools:**
+- `get_server_info` - Check connection to Attio
+- `search_person` - Search for someone (e.g., name: "John")
+- `search_company` - Search for a company
 
-### Option 1: One-Click Deploy
-Click the "Deploy to Render" button above.
+## Deployment to Render
 
-### Option 2: Manual Deployment
-1. Fork this repository
-2. Connect your GitHub account to Render
-3. Create a new Web Service on Render
-4. Connect your forked repository
-5. Render will automatically detect the `render.yaml` configuration
+### Quick Deploy
 
-Your server will be available at `https://your-service-name.onrender.com/mcp` (NOTE THE `/mcp`!)
+1. **Push your code to GitHub** (make sure `.env` is NOT committed!)
 
-## Poke Setup
+```bash
+git add .
+git commit -m "Update to Attio CRM integration"
+git push origin main
+```
 
-You can connect your MCP server to Poke at (poke.com/settings/connections)[poke.com/settings/connections].
-To test the connection explitly, ask poke somethink like `Tell the subagent to use the "{connection name}" integration's "{tool name}" tool`.
-If you run into persistent issues of poke not calling the right MCP (e.g. after you've renamed the connection) you may send `clearhistory` to poke to delete all message history and start fresh.
-We're working hard on improving the integration use of Poke :)
+2. **Deploy to Render:**
+   - Go to [render.com](https://render.com)
+   - Click "New +" → "Web Service"
+   - Connect your GitHub repository
+   - Render will detect `render.yaml` automatically
+   - Click "Apply"
+
+3. **Add API Key to Render:**
+   - Go to your service dashboard
+   - Click "Environment" tab
+   - Add environment variable:
+     - **Key**: `ATTIO_API_KEY`
+     - **Value**: `4405c2e2538fcbd3dc3984ec475d240dea0fdca1b659e0afc92263cdb610f2e3`
+   - Click "Save Changes"
+   - Service will automatically redeploy
+
+4. **Get your MCP endpoint:**
+
+Your server will be available at:
+```
+https://poke-attio-mcp.onrender.com/mcp
+```
+(Replace `poke-attio-mcp` with your actual service name)
+
+**Note:** The `/mcp` suffix is important!
+
+## Connect to Poke
+
+1. **Go to Poke settings:**
+   - Visit [poke.com/settings/connections](https://poke.com/settings/connections)
+   
+2. **Add new MCP connection:**
+   - Click "Add Connection"
+   - **Name**: `Attio CRM` (or whatever you prefer)
+   - **URL**: `https://your-service-name.onrender.com/mcp`
+   - **Transport**: Streamable HTTP
+   - Save
+
+3. **Test the connection:**
+
+Try asking Poke:
+```
+"What tools are available in Attio CRM?"
+"Search for a person named [name] in Attio"
+"What's the email of [name]?"
+```
+
+**Troubleshooting:**
+- If Poke doesn't call your MCP, try: `clearhistory` to delete message history
+- Test explicitly: `Tell the subagent to use the "Attio CRM" integration's "search_person" tool`
+- Check Render logs if the server isn't responding
 
 
-## Customization
+## Available Tools
 
-Add more tools by decorating functions with `@mcp.tool`:
+### `search_person`
+Search for a person/contact by name.
+
+**Example:** "What's the email of Mehdi Ghissassi?"
+
+### `search_company`
+Search for a company by name.
+
+**Example:** "Show me details about Acme Corp"
+
+### `get_server_info`
+Get server information and verify Attio connection.
+
+## Adding More Tools
+
+Add more tools by decorating functions with `@mcp.tool` in `src/server.py`:
 
 ```python
-@mcp.tool
-def calculate(x: float, y: float, operation: str) -> float:
-    """Perform basic arithmetic operations."""
-    if operation == "add":
-        return x + y
-    elif operation == "multiply":
-        return x * y
-    # ...
+@mcp.tool(description="Your tool description")
+def your_tool_name(param: str) -> dict:
+    """
+    Your tool documentation
+    
+    Args:
+        param: Parameter description
+    
+    Returns:
+        Dictionary with results
+    """
+    # Your implementation
+    return {"success": True}
 ```
-# Force deployment
+
+See `instructions.md` for planned features like adding notes, managing deals, etc.
+
+## Security Note
+
+**Never commit your `.env` file or expose your API key!**
+- `.env` is already in `.gitignore`
+- Set API key as environment variable in Render
+- Use `.env.example` as template for others
