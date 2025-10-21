@@ -9,5 +9,4 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
-      - key: ATTIO_API_KEY
-        sync: false  # Must be set manually in Render dashboard
+      # Note: ATTIO_API_KEY is now passed by Poke client for security

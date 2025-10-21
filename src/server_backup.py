@@ -268,8 +268,8 @@ def query_records(object_type: str, api_key: str, filters: dict = None, limit: i
 # LIST MANAGEMENT TOOLS - Manage list entries and memberships
 # ============================================================================
 
-@mcp.tool(description="[SECURE] get_list_entries - requires API key")
-def get_list_entries(api_key: str, list_identifier: str, filters: dict = None, limit: int = 50) -> dict:
+@mcp.tool(description="Get entries from a specific Attio list with optional filtering")
+def get_list_entries(list_identifier: str, filters: dict = None, limit: int = 50) -> dict:
     """
     Get entries from a specific list in Attio with optional filtering.
     
@@ -322,7 +322,7 @@ def get_list_entries(api_key: str, list_identifier: str, filters: dict = None, l
         if filters:
             query_data["filter"] = filters
         
-        result = make_attio_request(f"/lists/{list_id}/entries/query", method="POST", data=query_data, api_key=api_key)
+        result = make_attio_request(f"/lists/{list_id}/entries/query", method="POST", data=query_data)
         
         if not result.get("data"):
             return {
@@ -435,7 +435,7 @@ def update_list_entry(list_identifier: str, person_identifier: str, attribute_up
             }
         }
         
-        result = make_attio_request(f"/lists/{list_id}/entries/{entry_id}", method="PUT", data=update_data, api_key=api_key)
+        result = make_attio_request(f"/lists/{list_id}/entries/{entry_id}", method="PUT", data=update_data)
         
         return {
             "success": True,
@@ -518,7 +518,7 @@ def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes
                 if entry_attributes:
                     add_data["data"]["entry_values"] = entry_attributes
                 
-                make_attio_request(f"/lists/{list_id}/entries", method="POST", data=add_data, api_key=api_key)
+                make_attio_request(f"/lists/{list_id}/entries", method="POST", data=add_data)
                 
                 results.append({
                     "identifier": person_id,
@@ -582,7 +582,7 @@ def search_person(name: str, limit: int = 10) -> dict:
             "sorts": []
         }
         
-        result = make_attio_request("/objects/people/records/query", method="POST", data=query_data, api_key=api_key)
+        result = make_attio_request("/objects/people/records/query", method="POST", data=query_data)
         
         if not result.get("data"):
             return {
@@ -646,7 +646,7 @@ def search_company(name: str, limit: int = 10) -> dict:
             "sorts": []
         }
         
-        result = make_attio_request("/objects/companies/records/query", method="POST", data=query_data, api_key=api_key)
+        result = make_attio_request("/objects/companies/records/query", method="POST", data=query_data)
         
         if not result.get("data"):
             return {
@@ -768,7 +768,7 @@ def create_note(parent_object: str, parent_identifier: str, content: str, title:
             }
         }
         
-        result = make_attio_request("/notes", method="POST", data=note_data, api_key=api_key)
+        result = make_attio_request("/notes", method="POST", data=note_data)
         
         return {
             "success": True,
@@ -853,7 +853,7 @@ def add_note_to_person(person_name: str, note_content: str, note_title: str = "N
             }
         }
         
-        result = make_attio_request("/notes", method="POST", data=note_data, api_key=api_key)
+        result = make_attio_request("/notes", method="POST", data=note_data)
         
         return {
             "success": True,
@@ -932,7 +932,7 @@ def add_note_to_company(company_name: str, note_content: str, note_title: str = 
             }
         }
         
-        result = make_attio_request("/notes", method="POST", data=note_data, api_key=api_key)
+        result = make_attio_request("/notes", method="POST", data=note_data)
         
         return {
             "success": True,
@@ -953,14 +953,14 @@ def add_note_to_company(company_name: str, note_content: str, note_title: str = 
             "message": f"Failed to add note to company: {str(e)}"
         }
 
-@mcp.tool(description="[SECURE] get_server_info - requires API key")
-def get_server_info(api_key: str) -> dict:
+@mcp.tool(description="Get information about the Poke-Attio MCP server and available tools")
+def get_server_info() -> dict:
     """
     Get information about the MCP server, workspace, and available tools.
     """
     try:
         # Get workspace info from Attio
-        workspace_info = make_attio_request("/self", api_key=api_key)
+        workspace_info = make_attio_request("/self")
         
         return {
             "server_name": "Poke-Attio CRM Integration",
