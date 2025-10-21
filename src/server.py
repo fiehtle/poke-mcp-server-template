@@ -259,6 +259,294 @@ def query_records(object_type: str, filters: dict = None, limit: int = 50, sorts
         }
 
 # ============================================================================
+# LIST MANAGEMENT TOOLS - Manage list entries and memberships
+# ============================================================================
+
+@mcp.tool(description="Get entries from a specific Attio list with optional filtering")
+def get_list_entries(list_identifier: str, filters: dict = None, limit: int = 50) -> dict:
+    """
+    Get entries from a specific list in Attio with optional filtering.
+    
+    Use this to query people/companies within a specific list (e.g., "LP fundraising").
+    You can filter by list-specific attributes like status.
+    
+    Examples:
+    - Get all entries: get_list_entries("LP fundraising")
+    - Filter by status: get_list_entries("LP fundraising", {"status": {"$eq": "due diligence"}})
+    
+    Args:
+        list_identifier: List name or ID (try name first, e.g., "LP fundraising")
+        filters: Optional filters for list-specific attributes
+        limit: Maximum entries to return (default: 50)
+    
+    Returns:
+        Dictionary with list entries and their attributes
+    """
+    try:
+        # First, try to find the list by name if identifier is not a UUID
+        list_id = list_identifier
+        
+        if "-" not in list_identifier or len(list_identifier) < 30:
+            # Probably a name, search for the list
+            lists_result = query_records("lists", {"name": {"$contains": list_identifier}}, limit=5)
+            
+            if not lists_result.get("found") or not lists_result.get("records"):
+                return {
+                    "success": False,
+                    "message": f"Could not find list matching '{list_identifier}'",
+                    "suggestion": "Use query_records('lists', {}) to see available lists"
+                }
+            
+            if len(lists_result["records"]) > 1:
+                list_names = [l.get("name", {}).get("value", "Unknown") for l in lists_result["records"]]
+                return {
+                    "success": False,
+                    "message": f"Found {len(lists_result['records'])} lists matching '{list_identifier}': {', '.join(list_names)}",
+                    "suggestion": "Be more specific or use the list ID directly"
+                }
+            
+            list_record = lists_result["records"][0]
+            list_id = list_record.get("id")
+            list_name = list_record.get("name", {}).get("value", list_identifier)
+        else:
+            list_name = list_identifier
+        
+        # Query list entries
+        query_data = {"limit": limit}
+        if filters:
+            query_data["filter"] = filters
+        
+        result = make_attio_request(f"/lists/{list_id}/entries/query", method="POST", data=query_data)
+        
+        if not result.get("data"):
+            return {
+                "success": True,
+                "found": False,
+                "count": 0,
+                "list_name": list_name,
+                "entries": [],
+                "message": f"No entries found in list '{list_name}'" + (f" matching filters" if filters else "")
+            }
+        
+        # Format entries
+        entries = []
+        for entry in result["data"]:
+            entry_info = {
+                "entry_id": entry.get("id", {}).get("entry_id"),
+                "record_id": entry.get("parent_record_id"),
+            }
+            
+            # Extract entry values (list-specific attributes like status)
+            entry_values = entry.get("entry_values", {})
+            for key, value_list in entry_values.items():
+                if value_list and len(value_list) > 0:
+                    entry_info[key] = value_list[0]
+            
+            # Also include parent record values if available
+            if "parent_record" in entry:
+                values = entry["parent_record"].get("values", {})
+                for key, value_list in values.items():
+                    if value_list and len(value_list) > 0:
+                        entry_info[f"record_{key}"] = value_list[0]
+            
+            entries.append(entry_info)
+        
+        return {
+            "success": True,
+            "found": True,
+            "count": len(entries),
+            "list_name": list_name,
+            "list_id": list_id,
+            "entries": entries,
+            "message": f"Found {len(entries)} entries in list '{list_name}'"
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to get list entries: {str(e)}"
+        }
+
+@mcp.tool(description="Update attributes of a list entry (e.g., change status)")
+def update_list_entry(list_identifier: str, person_identifier: str, attribute_updates: dict) -> dict:
+    """
+    Update list-specific attributes for a person in a list (e.g., change their status).
+    
+    Use this to update list membership attributes like status, stage, priority, etc.
+    
+    Examples:
+    - Update status: update_list_entry("LP fundraising", "john@example.com", {"status": "committed"})
+    - Update multiple: update_list_entry("LP fundraising", "Jane Smith", {"status": "declined", "notes": "..."})
+    
+    Args:
+        list_identifier: List name or ID
+        person_identifier: Person's name or email
+        attribute_updates: Dictionary of attributes to update (e.g., {"status": "new value"})
+    
+    Returns:
+        Dictionary with update confirmation
+    """
+    try:
+        # Get the list entries to find the entry_id
+        entries_result = get_list_entries(list_identifier, limit=100)
+        
+        if not entries_result.get("success"):
+            return entries_result
+        
+        if not entries_result.get("found"):
+            return {
+                "success": False,
+                "message": f"List '{list_identifier}' has no entries"
+            }
+        
+        # Find the person in the list entries
+        target_entry = None
+        for entry in entries_result["entries"]:
+            # Check email or name
+            record_email = entry.get("record_email_addresses", {}).get("value", "")
+            record_name = entry.get("record_name", {}).get("value", "")
+            
+            if (person_identifier.lower() in record_email.lower() or 
+                person_identifier.lower() in record_name.lower()):
+                target_entry = entry
+                break
+        
+        if not target_entry:
+            return {
+                "success": False,
+                "message": f"Could not find '{person_identifier}' in list '{list_identifier}'",
+                "suggestion": f"Use get_list_entries('{list_identifier}') to see who's in the list"
+            }
+        
+        entry_id = target_entry.get("entry_id")
+        list_id = entries_result.get("list_id")
+        
+        # Update the entry
+        update_data = {
+            "data": {
+                "entry_values": attribute_updates
+            }
+        }
+        
+        result = make_attio_request(f"/lists/{list_id}/entries/{entry_id}", method="PUT", data=update_data)
+        
+        return {
+            "success": True,
+            "message": f"Successfully updated {person_identifier} in list '{entries_result.get('list_name')}'",
+            "updated_attributes": attribute_updates,
+            "entry_id": entry_id
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to update list entry: {str(e)}"
+        }
+
+@mcp.tool(description="Add one or more people to an Attio list (supports bulk)")
+def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes: dict = None) -> dict:
+    """
+    Add one or more people to a list. Supports bulk additions!
+    
+    Use this to add people to lists like "LP fundraising", "VIP Customers", etc.
+    You can also set initial list-specific attributes like status.
+    
+    Examples:
+    - Add one: add_to_list("LP fundraising", ["john@example.com"], {"status": "initial contact"})
+    - Bulk add: add_to_list("LP fundraising", ["a@e.com", "b@e.com", "c@e.com"], {"status": "intro"})
+    
+    Args:
+        list_identifier: List name or ID
+        person_identifiers: List of names or emails to add
+        entry_attributes: Optional attributes to set (e.g., {"status": "new"})
+    
+    Returns:
+        Dictionary with results for each person added
+    """
+    try:
+        # Get list ID
+        if "-" not in list_identifier or len(list_identifier) < 30:
+            lists_result = query_records("lists", {"name": {"$contains": list_identifier}}, limit=1)
+            if not lists_result.get("found"):
+                return {
+                    "success": False,
+                    "message": f"Could not find list '{list_identifier}'"
+                }
+            list_id = lists_result["records"][0].get("id")
+            list_name = lists_result["records"][0].get("name", {}).get("value", list_identifier)
+        else:
+            list_id = list_identifier
+            list_name = list_identifier
+        
+        # Find each person and add to list
+        results = []
+        for person_id in person_identifiers:
+            try:
+                # Search for person
+                search_result = query_records(
+                    "people",
+                    {"name": {"$contains": person_id}} if "@" not in person_id 
+                    else {"email_addresses": {"$contains": person_id}},
+                    limit=1
+                )
+                
+                if not search_result.get("found"):
+                    results.append({
+                        "identifier": person_id,
+                        "success": False,
+                        "message": f"Person not found"
+                    })
+                    continue
+                
+                person_record_id = search_result["records"][0].get("id")
+                
+                # Add to list
+                add_data = {
+                    "data": {
+                        "parent_record_id": person_record_id
+                    }
+                }
+                
+                if entry_attributes:
+                    add_data["data"]["entry_values"] = entry_attributes
+                
+                make_attio_request(f"/lists/{list_id}/entries", method="POST", data=add_data)
+                
+                results.append({
+                    "identifier": person_id,
+                    "success": True,
+                    "message": "Added to list"
+                })
+            
+            except Exception as e:
+                results.append({
+                    "identifier": person_id,
+                    "success": False,
+                    "message": str(e)
+                })
+        
+        success_count = sum(1 for r in results if r["success"])
+        
+        return {
+            "success": True,
+            "list_name": list_name,
+            "total_attempted": len(person_identifiers),
+            "successful": success_count,
+            "failed": len(person_identifiers) - success_count,
+            "results": results,
+            "message": f"Added {success_count}/{len(person_identifiers)} people to '{list_name}'"
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to add to list: {str(e)}"
+        }
+
+# ============================================================================
 # LEGACY SPECIFIC SEARCH TOOLS (Kept for backward compatibility)
 # Prefer using query_records() for more flexibility
 # ============================================================================
@@ -680,6 +968,9 @@ def get_server_info() -> dict:
                     "get_object_schema - See available attributes for an object",
                     "query_records - Query ANY object with ANY filters",
                     "create_note - Add notes to ANY object type",
+                    "get_list_entries - Get entries from a list with filtering",
+                    "update_list_entry - Update list entry attributes (status, etc.)",
+                    "add_to_list - Add people to lists (bulk supported)",
                     "get_server_info - Server status"
                 ],
                 "legacy": [
