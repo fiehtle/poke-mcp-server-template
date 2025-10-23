@@ -314,25 +314,11 @@ def list_all_lists() -> dict:
             "message": f"Failed to list lists: {str(e)}"
         }
 
-@mcp.tool(description="Get entries from a specific list in Attio with optional filtering")
-def get_list_entries(list_identifier: str, api_key: str = None, filters: dict = None, limit: int = 50) -> dict:
+# Internal helper function for get_list_entries logic
+def _get_list_entries_internal(list_identifier: str, api_key: str = None, filters: dict = None, limit: int = 50) -> dict:
     """
-    Get entries from a specific list in Attio with optional filtering.
-    
-    Use this to query people/companies within a specific list (e.g., "LP fundraising").
-    You can filter by list-specific attributes like status.
-    
-    Examples:
-    - Get all entries: get_list_entries("LP fundraising")
-    - Filter by status: get_list_entries("LP fundraising", {"status": {"$eq": "due diligence"}})
-    
-    Args:
-        list_identifier: List name or ID (try name first, e.g., "LP fundraising")
-        filters: Optional filters for list-specific attributes
-        limit: Maximum entries to return (default: 50)
-    
-    Returns:
-        Dictionary with list entries and their attributes
+    Internal helper function for get_list_entries logic.
+    Used by other functions that need to call get_list_entries without MCP wrapper.
     """
     try:
         # First, try to find the list by name if identifier is not a UUID
@@ -428,11 +414,132 @@ def get_list_entries(list_identifier: str, api_key: str = None, filters: dict = 
         }
     
     except Exception as e:
+        error_str = str(e)
+        
+        # Provide helpful guidance for status filtering errors
+        if "unknown_filter_status_slug" in error_str or "Unknown status" in error_str:
+            return {
+                "success": False,
+                "error": error_str,
+                "message": f"Status filtering error: {error_str}",
+                "suggestion": "Status filtering requires status IDs, not display names. Use get_list_statuses() to find available statuses and their IDs.",
+                "help": {
+                    "tool": "get_list_statuses",
+                    "description": "Call get_list_statuses('list_name') to see all available statuses with their IDs",
+                    "example": "get_list_statuses('LP Fundraising')"
+                }
+            }
+        elif "invalid_filter_operator" in error_str:
+            return {
+                "success": False,
+                "error": error_str,
+                "message": f"Filter operator error: {error_str}",
+                "suggestion": "Status fields only support '$eq' operator. Use exact status ID matches.",
+                "help": {
+                    "correct_format": {"status": {"$eq": "status_id_here"}},
+                    "incorrect_format": {"status": {"$contains": "status_name"}}
+                }
+            }
+        
+        return {
+            "success": False,
+            "error": error_str,
+            "message": f"Failed to get list entries: {error_str}"
+        }
+
+@mcp.tool(description="Get all available statuses for a specific list with their IDs and display names")
+def get_list_statuses(list_identifier: str, api_key: str = None) -> dict:
+    """
+    Get all available statuses for a specific list in Attio.
+    
+    This tool helps you discover what statuses are available for filtering.
+    Use the returned status IDs in get_list_entries() filters.
+    
+    Args:
+        list_identifier: List name or ID (e.g., "LP Fundraising")
+    
+    Returns:
+        Dictionary with all available statuses and their IDs
+    """
+    try:
+        # First, get a sample of entries to extract status information
+        # We need to call the underlying function directly, not the MCP tool
+        sample_result = _get_list_entries_internal(list_identifier, api_key=api_key, limit=100)
+        
+        if not sample_result.get("success"):
+            return sample_result
+        
+        if not sample_result.get("found"):
+            return {
+                "success": True,
+                "list_name": sample_result.get("list_name", list_identifier),
+                "statuses": [],
+                "message": f"No entries found in list '{list_identifier}' to determine statuses"
+            }
+        
+        # Extract unique statuses from entries
+        statuses = {}
+        for entry in sample_result["entries"]:
+            if "status" in entry and "status" in entry["status"]:
+                status_info = entry["status"]["status"]
+                status_id = status_info["id"]["status_id"]
+                status_title = status_info["title"]
+                
+                if status_id not in statuses:
+                    statuses[status_id] = {
+                        "id": status_id,
+                        "title": status_title,
+                        "is_archived": status_info.get("is_archived", False),
+                        "example_entry_count": 1
+                    }
+                else:
+                    statuses[status_id]["example_entry_count"] += 1
+        
+        # Convert to list and sort by title
+        status_list = list(statuses.values())
+        status_list.sort(key=lambda x: x["title"])
+        
+        return {
+            "success": True,
+            "list_name": sample_result.get("list_name", list_identifier),
+            "list_id": sample_result.get("list_id"),
+            "count": len(status_list),
+            "statuses": status_list,
+            "message": f"Found {len(status_list)} unique statuses in list '{sample_result.get('list_name', list_identifier)}'",
+            "usage_example": {
+                "description": "Use status IDs in get_list_entries filters",
+                "example": f"get_list_entries('{list_identifier}', {{'status': {{'$eq': '{status_list[0]['id'] if status_list else 'status_id_here'}'}}}})"
+            }
+        }
+    
+    except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "message": f"Failed to get list entries: {str(e)}"
+            "message": f"Failed to get list statuses: {str(e)}"
         }
+
+@mcp.tool(description="Get entries from a specific list in Attio with optional filtering. IMPORTANT: For status filtering, use status IDs not display names (use get_list_statuses to find them)")
+def get_list_entries(list_identifier: str, api_key: str = None, filters: dict = None, limit: int = 50) -> dict:
+    """
+    Get entries from a specific list in Attio with optional filtering.
+    
+    Use this to query people/companies within a specific list (e.g., "LP fundraising").
+    You can filter by list-specific attributes like status.
+    
+    Examples:
+    - Get all entries: get_list_entries("LP fundraising")
+    - Filter by status ID: get_list_entries("LP fundraising", {"status": {"$eq": "c8fb3791-8a5c-4092-85b9-56ea1503db04"}})
+    
+    Args:
+        list_identifier: List name or ID (try name first, e.g., "LP fundraising")
+        filters: Optional filters for list-specific attributes (use status IDs, not display names)
+        limit: Maximum entries to return (default: 50)
+    
+    Returns:
+        Dictionary with list entries and their attributes
+    """
+    return _get_list_entries_internal(list_identifier, api_key, filters, limit)
 
 @mcp.tool(description="Update attributes of a list entry (e.g., change status)")
 def update_list_entry(list_identifier: str, person_identifier: str, attribute_updates: dict, api_key: str = None) -> dict:
@@ -1055,6 +1162,7 @@ def get_server_info(api_key: str = None) -> dict:
                     "query_records - Query ANY object with ANY filters",
                     "create_note - Add notes to ANY object type",
                     "list_all_lists - List all available lists in workspace",
+                    "get_list_statuses - Get available statuses for a list (with IDs)",
                     "get_list_entries - Get entries from a list with filtering",
                     "update_list_entry - Update list entry attributes (status, etc.)",
                     "add_to_list - Add people to lists (bulk supported)",
