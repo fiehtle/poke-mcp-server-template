@@ -1140,6 +1140,346 @@ def add_note_to_company(company_name: str, note_content: str, note_title: str = 
             "message": f"Failed to add note to company: {str(e)}"
         }
 
+@mcp.tool(description="Get real-world workflow examples and usage patterns for common tasks")
+def get_usage_examples() -> dict:
+    """
+    Get comprehensive usage examples showing how to accomplish common tasks.
+    
+    Returns workflow patterns for:
+    - List management and pipeline tracking
+    - Prospect research and filtering
+    - Deal tracking and status updates
+    - Complex multi-filter queries
+    - Data extraction patterns
+    """
+    return {
+        "success": True,
+        "examples": {
+            "list_management_workflow": {
+                "description": "Complete workflow for managing lists and tracking status",
+                "steps": [
+                    {
+                        "step": 1,
+                        "action": "Discover available lists",
+                        "tool": "list_all_lists",
+                        "example": "list_all_lists()",
+                        "returns": "All lists with names, IDs, and parent objects"
+                    },
+                    {
+                        "step": 2,
+                        "action": "Get status IDs for filtering",
+                        "tool": "get_list_statuses",
+                        "example": "get_list_statuses('LP Fundraising')",
+                        "returns": "All statuses with IDs (e.g., 'Due Diligence' → c8fb3791...)",
+                        "critical": "ALWAYS do this before filtering by status"
+                    },
+                    {
+                        "step": 3,
+                        "action": "Query entries by status",
+                        "tool": "get_list_entries",
+                        "example": "get_list_entries('LP Fundraising', {'status': {'$eq': 'c8fb3791-8a5c-4092-85b9-56ea1503db04'}})",
+                        "returns": "Filtered list entries with full details"
+                    },
+                    {
+                        "step": 4,
+                        "action": "Update entry status",
+                        "tool": "update_list_entry",
+                        "example": "update_list_entry('LP Fundraising', 'person@example.com', {'status': 'new_status_id'})",
+                        "returns": "Confirmation of status change"
+                    }
+                ]
+            },
+            "prospect_research": {
+                "description": "Find and analyze prospects with complex criteria",
+                "use_cases": [
+                    {
+                        "goal": "Find people in London who haven't been contacted recently",
+                        "tool": "query_records",
+                        "code": {
+                            "object_type": "people",
+                            "filters": {
+                                "primary_location": {"$contains": "London"},
+                                "last_interaction": {"$lt": "2024-01-01T00:00:00.000Z"}
+                            },
+                            "limit": 20
+                        },
+                        "explanation": "Combines location filter with interaction date to find cold leads"
+                    },
+                    {
+                        "goal": "Find people with strong connections to team",
+                        "tool": "query_records",
+                        "code": {
+                            "object_type": "people",
+                            "filters": {
+                                "strongest_connection_strength_legacy": {"$gt": 0.8}
+                            }
+                        },
+                        "explanation": "Uses numeric filter to find warm introductions"
+                    },
+                    {
+                        "goal": "Find people by name pattern",
+                        "tool": "query_records",
+                        "code": {
+                            "object_type": "people",
+                            "filters": {
+                                "name": {"$contains": "Smith"}
+                            },
+                            "limit": 10
+                        },
+                        "explanation": "Text search across full names"
+                    }
+                ]
+            },
+            "deal_tracking": {
+                "description": "Monitor and update deal pipeline",
+                "workflow": [
+                    {
+                        "task": "Get active deals",
+                        "example": "get_list_entries('Deal Flow', limit=100)",
+                        "note": "Returns all entries with deal_stage, target_raise, etc."
+                    },
+                    {
+                        "task": "Filter by investment stage",
+                        "step1": "get_list_statuses('Deal Flow')  # Get status IDs",
+                        "step2": "get_list_entries('Deal Flow', {'deal_stage': {'$eq': 'status_id_here'}})"
+                    },
+                    {
+                        "task": "Find deals by size",
+                        "example": "get_list_entries('Deal Flow', {'target_raise': {'$gt': 1000000}})",
+                        "note": "Currency filters use numeric values in cents/smallest unit"
+                    }
+                ]
+            },
+            "data_extraction": {
+                "description": "Extract and process CRM data",
+                "tips": [
+                    {
+                        "tip": "All attributes have version history",
+                        "structure": {
+                            "active_from": "timestamp",
+                            "active_until": "null or timestamp",
+                            "created_by_actor": {"type": "system or workspace-member"},
+                            "value": "actual_data_here"
+                        },
+                        "access": "Use specific fields like .value, .email_address, .full_name, etc."
+                    },
+                    {
+                        "tip": "Handle multiselect fields",
+                        "example": "email_addresses is multiselect, always iterate even for single values"
+                    },
+                    {
+                        "tip": "Extract nested references",
+                        "example": "company field has target_record_id pointing to companies object"
+                    }
+                ]
+            },
+            "common_filters": {
+                "text_search": {"name": {"$contains": "search_term"}},
+                "exact_match": {"email_addresses": {"$eq": "exact@email.com"}},
+                "date_range": {"last_interaction": {"$gt": "2024-01-01T00:00:00.000Z", "$lt": "2024-12-31T23:59:59.000Z"}},
+                "numeric_comparison": {"twitter_follower_count": {"$gte": 10000}},
+                "location_filter": {"primary_location": {"$contains": "San Francisco"}},
+                "status_filter": {"status": {"$eq": "status_id_from_get_list_statuses"}}
+            }
+        },
+        "quick_start": {
+            "discovery": "1. list_available_objects() → 2. get_object_schema('people') → 3. query_records('people', limit=5)",
+            "lists": "1. list_all_lists() → 2. get_list_statuses('list_name') → 3. get_list_entries('list_name', filters=...)",
+            "filtering": "Always start with small limit (5-10) to test filters, then increase to 50-100"
+        },
+        "pro_tips": [
+            "Use get_list_statuses() to cache status IDs - they don't change often",
+            "Combine multiple filters to narrow results: {'location': ..., 'last_interaction': ...}",
+            "Start queries with limit=5 to test, then increase for production",
+            "Remember: status and select fields require IDs, not display names",
+            "For list queries, get_list_entries returns both entry values AND parent record values"
+        ]
+    }
+
+@mcp.tool(description="Get comprehensive filter syntax guide with operators and attribute types")
+def get_filter_guide() -> dict:
+    """
+    Get detailed guide on filter syntax, operators, and attribute type compatibility.
+    
+    Returns:
+    - Supported filter operators by attribute type
+    - Real-world filter examples
+    - Common pitfalls and solutions
+    - Performance optimization tips
+    """
+    return {
+        "success": True,
+        "filter_operators": {
+            "by_attribute_type": {
+                "text": {
+                    "operators": ["$eq", "$ne", "$contains"],
+                    "examples": {
+                        "$eq": {"job_title": {"$eq": "CEO"}},
+                        "$ne": {"job_title": {"$ne": "Intern"}},
+                        "$contains": {"description": {"$contains": "AI"}}
+                    },
+                    "notes": "Case-sensitive matching"
+                },
+                "personal-name": {
+                    "operators": ["$eq", "$ne", "$contains"],
+                    "examples": {
+                        "$contains": {"name": {"$contains": "Smith"}}
+                    },
+                    "notes": "Searches across full_name field"
+                },
+                "email-address": {
+                    "operators": ["$eq", "$ne", "$contains"],
+                    "examples": {
+                        "$eq": {"email_addresses": {"$eq": "john@example.com"}},
+                        "$contains": {"email_addresses": {"$contains": "@gmail.com"}}
+                    },
+                    "notes": "Searches the email_address field within the object"
+                },
+                "number": {
+                    "operators": ["$eq", "$ne", "$gt", "$lt", "$gte", "$lte"],
+                    "examples": {
+                        "$gt": {"twitter_follower_count": {"$gt": 10000}},
+                        "$gte": {"strongest_connection_strength_legacy": {"$gte": 0.5}},
+                        "$lt": {"twitter_follower_count": {"$lt": 1000}}
+                    },
+                    "notes": "Standard numeric comparisons"
+                },
+                "timestamp": {
+                    "operators": ["$eq", "$ne", "$gt", "$lt", "$gte", "$lte"],
+                    "examples": {
+                        "$gt": {"created_at": {"$gt": "2024-01-01T00:00:00.000Z"}},
+                        "$lt": {"created_at": {"$lt": "2024-12-31T23:59:59.000Z"}}
+                    },
+                    "notes": "Use ISO 8601 format with Z suffix",
+                    "format": "YYYY-MM-DDTHH:MM:SS.000Z"
+                },
+                "date": {
+                    "operators": ["$eq", "$ne", "$gt", "$lt", "$gte", "$lte"],
+                    "examples": {
+                        "$gte": {"foundation_date": {"$gte": "2020-01-01"}},
+                        "$lt": {"date_of_investment": {"$lt": "2024-12-31"}}
+                    },
+                    "notes": "Use YYYY-MM-DD format"
+                },
+                "select": {
+                    "operators": ["$eq", "$ne"],
+                    "examples": {
+                        "$eq": {"sector": {"$eq": "option_id_here"}}
+                    },
+                    "notes": "CRITICAL: Must use option_id, NOT display title. Get IDs from get_object_schema()",
+                    "warning": "Using display names will cause errors!"
+                },
+                "status": {
+                    "operators": ["$eq", "$ne"],
+                    "examples": {
+                        "$eq": {"status": {"$eq": "c8fb3791-8a5c-4092-85b9-56ea1503db04"}}
+                    },
+                    "notes": "CRITICAL: Must use status_id, NOT display title",
+                    "warning": "ALWAYS use get_list_statuses() first to get status IDs!",
+                    "workflow": "1. get_list_statuses('list_name') → 2. Use returned status_id in filter"
+                },
+                "location": {
+                    "operators": ["$eq", "$ne", "$contains"],
+                    "examples": {
+                        "$contains": {"primary_location": {"$contains": "London"}},
+                        "$eq": {"primary_location": {"$eq": "San Francisco, California, US"}}
+                    },
+                    "notes": "Searches across locality, region, and country fields"
+                },
+                "interaction": {
+                    "operators": ["$eq", "$ne", "$gt", "$lt", "$gte", "$lte"],
+                    "examples": {
+                        "$lt": {"last_interaction": {"$lt": "2024-01-01T00:00:00.000Z"}},
+                        "$gt": {"first_calendar_interaction": {"$gt": "2023-01-01T00:00:00.000Z"}}
+                    },
+                    "notes": "Filters on interacted_at timestamp within interaction object"
+                },
+                "checkbox": {
+                    "operators": ["$eq"],
+                    "examples": {
+                        "$eq": {"invitation_accepted": {"$eq": True}}
+                    },
+                    "notes": "Use boolean values: True or False"
+                },
+                "currency": {
+                    "operators": ["$eq", "$ne", "$gt", "$lt", "$gte", "$lte"],
+                    "examples": {
+                        "$gt": {"funding_raised_usd": {"$gt": 1000000}},
+                        "$gte": {"target_raise": {"$gte": 500000}}
+                    },
+                    "notes": "Values in cents/smallest currency unit (e.g., $1M = 1000000)"
+                },
+                "record-reference": {
+                    "operators": ["$eq", "$ne"],
+                    "examples": {
+                        "$eq": {"company": {"$eq": "company_record_id_here"}}
+                    },
+                    "notes": "Uses target_record_id for matching"
+                }
+            }
+        },
+        "combining_filters": {
+            "description": "Multiple filters are combined with AND logic",
+            "examples": [
+                {
+                    "use_case": "Find active London prospects",
+                    "filters": {
+                        "primary_location": {"$contains": "London"},
+                        "last_interaction": {"$gt": "2024-01-01T00:00:00.000Z"}
+                    }
+                },
+                {
+                    "use_case": "Find companies with significant funding in specific sector",
+                    "filters": {
+                        "funding_raised_usd": {"$gt": 5000000},
+                        "categories": {"$contains": "SaaS"}
+                    }
+                }
+            ]
+        },
+        "common_pitfalls": [
+            {
+                "problem": "Using status/select display names instead of IDs",
+                "error": "Unknown status for status field constraint: due diligence",
+                "solution": "Use get_list_statuses() to find the ID first",
+                "correct_workflow": "get_list_statuses('LP Fundraising') → Find 'Due Diligence' ID → Use ID in filter"
+            },
+            {
+                "problem": "Using wrong operator for attribute type",
+                "error": "invalid_filter_operator",
+                "solution": "Check attribute type and use compatible operator (status only supports $eq/$ne)",
+                "reference": "See 'by_attribute_type' section above"
+            },
+            {
+                "problem": "Incorrect timestamp format",
+                "error": "Invalid date format",
+                "solution": "Use ISO 8601 with Z suffix: 2024-01-01T00:00:00.000Z",
+                "correct": "2024-01-01T00:00:00.000Z",
+                "incorrect": "2024-01-01 or 01/01/2024"
+            },
+            {
+                "problem": "Currency values in dollars instead of cents",
+                "error": "Unexpected results",
+                "solution": "$1,000,000 should be 1000000 (no decimal point)",
+                "example": {"funding_raised_usd": {"$gt": 1000000}}
+            }
+        ],
+        "performance_tips": [
+            "Start with limit=5-10 to test filters, then increase to 50-100",
+            "More specific filters = faster responses and lower data transfer",
+            "Combine filters to narrow results instead of filtering in your code",
+            "Cache status IDs from get_list_statuses() - they don't change often",
+            "Use date range filters to limit historical data queries"
+        ],
+        "best_practices": [
+            "Always use get_list_statuses() before filtering by status",
+            "Test filters with small limits first",
+            "Prefer query_records() over legacy search tools for flexibility",
+            "Handle version history: access .value, .email_address, .full_name, etc.",
+            "Remember multiselect fields return arrays even for single values"
+        ]
+    }
+
 @mcp.tool(description="Get information about the MCP server, workspace, and available tools")
 def get_server_info(api_key: str = None) -> dict:
     """
@@ -1156,23 +1496,66 @@ def get_server_info(api_key: str = None) -> dict:
             "environment": os.environ.get("ENVIRONMENT", "development"),
             "python_version": os.sys.version.split()[0],
             "available_tools": {
-                "recommended": [
-                    "list_available_objects - Discover what objects exist",
-                    "get_object_schema - See available attributes for an object",
-                    "query_records - Query ANY object with ANY filters",
-                    "create_note - Add notes to ANY object type",
-                    "list_all_lists - List all available lists in workspace",
-                    "get_list_statuses - Get available statuses for a list (with IDs)",
-                    "get_list_entries - Get entries from a list with filtering",
-                    "update_list_entry - Update list entry attributes (status, etc.)",
-                    "add_to_list - Add people to lists (bulk supported)",
-                    "get_server_info - Server status"
+                "documentation": [
+                    "get_usage_examples - Real-world workflow patterns and examples",
+                    "get_filter_guide - Comprehensive filter syntax and operator reference",
+                    "get_server_info - Server status and tool overview"
                 ],
-                "legacy": [
-                    "search_person - Use query_records() instead",
-                    "search_company - Use query_records() instead",
-                    "add_note_to_person - Use create_note() instead",
-                    "add_note_to_company - Use create_note() instead"
+                "discovery": [
+                    "list_available_objects - Discover what objects exist (people, companies, etc.)",
+                    "get_object_schema - See all attributes and types for an object",
+                    "list_all_lists - List all available lists in workspace",
+                    "get_list_statuses - Get status IDs for list filtering (CRITICAL for status filters)"
+                ],
+                "querying": [
+                    "query_records - Universal tool for querying ANY object with ANY filters",
+                    "get_list_entries - Query list entries with list-specific attributes"
+                ],
+                "writing": [
+                    "create_note - Add notes to ANY object type (people, companies, etc.)",
+                    "update_list_entry - Update list entry attributes (e.g., change status)",
+                    "add_to_list - Add people to lists (bulk supported)"
+                ],
+                "legacy_avoid": [
+                    "search_person - DEPRECATED: Use query_records('people', ...) instead",
+                    "search_company - DEPRECATED: Use query_records('companies', ...) instead",
+                    "add_note_to_person - DEPRECATED: Use create_note(object_type='people', ...) instead",
+                    "add_note_to_company - DEPRECATED: Use create_note(object_type='companies', ...) instead"
+                ]
+            },
+            "quick_start_guide": {
+                "step_1": "Call get_usage_examples() for workflow patterns",
+                "step_2": "Call get_filter_guide() for filter syntax reference",
+                "step_3": "Use list_available_objects() to see what data exists",
+                "step_4": "Use query_records() or get_list_entries() to fetch data"
+            },
+            "tool_selection_guide": {
+                "for_general_queries": "Use query_records() - works with any object type and supports all filters",
+                "for_list_pipelines": "Use get_list_entries() - includes list-specific attributes like status",
+                "for_status_filtering": "ALWAYS call get_list_statuses() first to get status IDs",
+                "for_adding_notes": "Use create_note() - universal tool for all object types",
+                "avoid_legacy_tools": "Legacy tools (search_*, add_note_to_*) are less flexible"
+            },
+            "integration_capabilities": {
+                "good_for": [
+                    "CRM search and discovery",
+                    "Note creation and context tracking",
+                    "Pipeline and deal tracking",
+                    "Read-only dashboards",
+                    "Data analysis and reporting",
+                    "Status tracking and workflow management"
+                ],
+                "not_suitable_for": [
+                    "Creating/updating core records (people, companies)",
+                    "Bulk data migration",
+                    "File management",
+                    "Custom object creation",
+                    "Deleting records"
+                ],
+                "partial_support": [
+                    "List entry updates (can update list-specific attributes)",
+                    "List membership (can add, cannot remove)",
+                    "Note management (can create, cannot edit/delete)"
                 ]
             },
             "status": "Live - Connected to Attio CRM",
