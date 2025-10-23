@@ -178,3 +178,4 @@ See `instructions.md` for planned features like adding notes, managing deals, et
 - `.env` is already in `.gitignore`
 - Set API key as environment variable in Render
 - Use `.env.example` as template for others
+# Trigger redeploy Thu Oct 23 14:36:44 CEST 2025
