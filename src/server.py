@@ -25,16 +25,16 @@ def make_attio_request(endpoint: str, method: str = "GET", data: dict = None, ap
         endpoint: API endpoint (e.g., '/self', '/objects/people/records/query')
         method: HTTP method (GET, POST, PATCH, DELETE)
         data: Request payload for POST/PATCH requests
-        api_key: Attio API key (passed by Poke client)
+        api_key: Attio API key (passed by Poke client or from environment)
     
     Returns:
         Response data as dictionary
     """
     if not api_key:
-        # Try to get from environment for local development
+        # Try to get from environment (for Poke configuration)
         api_key = os.environ.get("ATTIO_API_KEY")
         if not api_key:
-            raise ValueError("API key is required. Please provide it via Poke client or set ATTIO_API_KEY environment variable.")
+            raise ValueError("API key is required. Please configure it in Poke's integration settings or set ATTIO_API_KEY environment variable.")
     
     url = f"{ATTIO_BASE_URL}{endpoint}"
     headers = {
@@ -68,7 +68,7 @@ def make_attio_request(endpoint: str, method: str = "GET", data: dict = None, ap
 # ============================================================================
 
 @mcp.tool(description="List all available object types in Attio workspace")
-def list_available_objects(api_key: str) -> dict:
+def list_available_objects(api_key: str = None) -> dict:
     """
     Get a list of all object types available in your Attio workspace.
     Use this to discover what objects you can query (people, companies, deals, etc.)
@@ -111,7 +111,7 @@ def list_available_objects(api_key: str) -> dict:
         }
 
 @mcp.tool(description="Get schema/attributes for a specific object type in Attio")
-def get_object_schema(object_type: str, api_key: str) -> dict:
+def get_object_schema(object_type: str, api_key: str = None) -> dict:
     """
     Get the schema and available attributes for a specific object type.
     This tells you what fields you can query, filter, and update.
@@ -168,7 +168,7 @@ def get_object_schema(object_type: str, api_key: str) -> dict:
 # ============================================================================
 
 @mcp.tool(description="Query Attio records with advanced filtering (supports ANY object type and ANY attributes)")
-def query_records(object_type: str, api_key: str, filters: dict = None, limit: int = 50, sorts: list = None) -> dict:
+def query_records(object_type: str, api_key: str = None, filters: dict = None, limit: int = 50, sorts: list = None) -> dict:
     """
     Universal query tool for Attio CRM. Query ANY object type with ANY filters.
     This replaces specific search tools and supports advanced use cases.
@@ -268,8 +268,8 @@ def query_records(object_type: str, api_key: str, filters: dict = None, limit: i
 # LIST MANAGEMENT TOOLS - Manage list entries and memberships
 # ============================================================================
 
-@mcp.tool(description="[SECURE] list_all_lists - requires API key")
-def list_all_lists(api_key: str) -> dict:
+@mcp.tool(description="List all available lists in your Attio workspace")
+def list_all_lists(api_key: str = None) -> dict:
     """
     List all available lists in your Attio workspace.
     
@@ -314,8 +314,8 @@ def list_all_lists(api_key: str) -> dict:
             "message": f"Failed to list lists: {str(e)}"
         }
 
-@mcp.tool(description="[SECURE] get_list_entries - requires API key")
-def get_list_entries(api_key: str, list_identifier: str, filters: dict = None, limit: int = 50) -> dict:
+@mcp.tool(description="Get entries from a specific list in Attio with optional filtering")
+def get_list_entries(list_identifier: str, api_key: str = None, filters: dict = None, limit: int = 50) -> dict:
     """
     Get entries from a specific list in Attio with optional filtering.
     
@@ -435,7 +435,7 @@ def get_list_entries(api_key: str, list_identifier: str, filters: dict = None, l
         }
 
 @mcp.tool(description="Update attributes of a list entry (e.g., change status)")
-def update_list_entry(list_identifier: str, person_identifier: str, attribute_updates: dict) -> dict:
+def update_list_entry(list_identifier: str, person_identifier: str, attribute_updates: dict, api_key: str = None) -> dict:
     """
     Update list-specific attributes for a person in a list (e.g., change their status).
     
@@ -455,7 +455,7 @@ def update_list_entry(list_identifier: str, person_identifier: str, attribute_up
     """
     try:
         # Get the list entries to find the entry_id
-        entries_result = get_list_entries(list_identifier, limit=100)
+        entries_result = get_list_entries(list_identifier, api_key=api_key, limit=100)
         
         if not entries_result.get("success"):
             return entries_result
@@ -512,7 +512,7 @@ def update_list_entry(list_identifier: str, person_identifier: str, attribute_up
         }
 
 @mcp.tool(description="Add one or more people to an Attio list (supports bulk)")
-def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes: dict = None) -> dict:
+def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes: dict = None, api_key: str = None) -> dict:
     """
     Add one or more people to a list. Supports bulk additions!
     
@@ -571,7 +571,8 @@ def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes
                 # Search for person
                 search_result = query_records(
                     "people",
-                    {"name": {"$contains": person_id}} if "@" not in person_id 
+                    api_key=api_key,
+                    filters={"name": {"$contains": person_id}} if "@" not in person_id 
                     else {"email_addresses": {"$contains": person_id}},
                     limit=1
                 )
@@ -636,7 +637,7 @@ def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes
 # ============================================================================
 
 @mcp.tool(description="[LEGACY] Search for a person/contact in Attio by name - Consider using query_records() instead")
-def search_person(name: str, limit: int = 10) -> dict:
+def search_person(name: str, limit: int = 10, api_key: str = None) -> dict:
     """
     Search for a person/contact in Attio CRM by name.
     Use this when asked questions like "What's the email of [person name]?"
@@ -701,7 +702,7 @@ def search_person(name: str, limit: int = 10) -> dict:
         }
 
 @mcp.tool(description="[LEGACY] Search for a company in Attio by name - Consider using query_records() instead")
-def search_company(name: str, limit: int = 10) -> dict:
+def search_company(name: str, limit: int = 10, api_key: str = None) -> dict:
     """
     Search for a company in Attio CRM by name.
     
@@ -769,7 +770,7 @@ def search_company(name: str, limit: int = 10) -> dict:
 # ============================================================================
 
 @mcp.tool(description="Create a note and attach it to any Attio record (person, company, deal, etc.)")
-def create_note(parent_object: str, parent_identifier: str, content: str, title: str = "Note") -> dict:
+def create_note(parent_object: str, parent_identifier: str, content: str, title: str = "Note", api_key: str = None) -> dict:
     """
     Universal note creation tool. Create a note and attach it to ANY object type.
     This replaces specific note tools (add_note_to_person, add_note_to_company, etc.)
@@ -803,6 +804,7 @@ def create_note(parent_object: str, parent_identifier: str, content: str, title:
             # Search for the record by name
             search_result = query_records(
                 object_type=parent_object,
+                api_key=api_key,
                 filters={"name": {"$contains": parent_identifier}},
                 limit=5
             )
@@ -874,7 +876,7 @@ def create_note(parent_object: str, parent_identifier: str, content: str, title:
 # ============================================================================
 
 @mcp.tool(description="[LEGACY] Add a note to a person's record in Attio - Consider using create_note() instead")
-def add_note_to_person(person_name: str, note_content: str, note_title: str = "Note") -> dict:
+def add_note_to_person(person_name: str, note_content: str, note_title: str = "Note", api_key: str = None) -> dict:
     """
     Add a note to a person's record in Attio CRM.
     Use this when you want to attach notes (e.g., from Notion, meeting notes, call notes) to a contact.
@@ -889,7 +891,7 @@ def add_note_to_person(person_name: str, note_content: str, note_title: str = "N
     """
     try:
         # First, search for the person
-        search_result = search_person(person_name, limit=5)
+        search_result = search_person(person_name, limit=5, api_key=api_key)
         
         if not search_result.get("found") or not search_result.get("people"):
             return {
@@ -953,7 +955,7 @@ def add_note_to_person(person_name: str, note_content: str, note_title: str = "N
         }
 
 @mcp.tool(description="[LEGACY] Add a note to a company's record in Attio - Consider using create_note() instead")
-def add_note_to_company(company_name: str, note_content: str, note_title: str = "Note") -> dict:
+def add_note_to_company(company_name: str, note_content: str, note_title: str = "Note", api_key: str = None) -> dict:
     """
     Add a note to a company's record in Attio CRM.
     Use this when you want to attach notes (e.g., from Notion, meeting notes, call notes) to a company.
@@ -968,7 +970,7 @@ def add_note_to_company(company_name: str, note_content: str, note_title: str = 
     """
     try:
         # First, search for the company
-        search_result = search_company(company_name, limit=5)
+        search_result = search_company(company_name, limit=5, api_key=api_key)
         
         if not search_result.get("found") or not search_result.get("companies"):
             return {
@@ -1031,8 +1033,8 @@ def add_note_to_company(company_name: str, note_content: str, note_title: str = 
             "message": f"Failed to add note to company: {str(e)}"
         }
 
-@mcp.tool(description="[SECURE] get_server_info - requires API key")
-def get_server_info(api_key: str) -> dict:
+@mcp.tool(description="Get information about the MCP server, workspace, and available tools")
+def get_server_info(api_key: str = None) -> dict:
     """
     Get information about the MCP server, workspace, and available tools.
     """
