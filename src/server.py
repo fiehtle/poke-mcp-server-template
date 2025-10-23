@@ -269,7 +269,7 @@ def query_records(object_type: str, api_key: str = None, filters: dict = None, l
 # ============================================================================
 
 @mcp.tool(description="List all available lists in your Attio workspace")
-def list_all_lists(api_key: str = None) -> dict:
+def list_all_lists() -> dict:
     """
     List all available lists in your Attio workspace.
     
@@ -279,7 +279,7 @@ def list_all_lists(api_key: str = None) -> dict:
         Dictionary with all lists and their metadata
     """
     try:
-        result = make_attio_request("/lists", api_key=api_key)
+        result = make_attio_request("/lists")
         
         if not result.get("data"):
             return {
