@@ -179,3 +179,4 @@ See `instructions.md` for planned features like adding notes, managing deals, et
 - Set API key as environment variable in Render
 - Use `.env.example` as template for others
 # Trigger redeploy Thu Oct 23 14:36:44 CEST 2025
+# Trigger redeploy - Thu Oct 23 15:07:43 CEST 2025
