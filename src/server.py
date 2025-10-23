@@ -268,6 +268,52 @@ def query_records(object_type: str, api_key: str, filters: dict = None, limit: i
 # LIST MANAGEMENT TOOLS - Manage list entries and memberships
 # ============================================================================
 
+@mcp.tool(description="[SECURE] list_all_lists - requires API key")
+def list_all_lists(api_key: str) -> dict:
+    """
+    List all available lists in your Attio workspace.
+    
+    Use this to discover what lists exist before querying them.
+    
+    Returns:
+        Dictionary with all lists and their metadata
+    """
+    try:
+        result = make_attio_request("/lists", api_key=api_key)
+        
+        if not result.get("data"):
+            return {
+                "success": True,
+                "lists": [],
+                "message": "No lists found in workspace"
+            }
+        
+        # Format lists
+        lists = []
+        for list_obj in result["data"]:
+            lists.append({
+                "id": list_obj.get("id", {}).get("list_id"),
+                "name": list_obj.get("name"),
+                "api_slug": list_obj.get("api_slug"),
+                "parent_object": list_obj.get("parent_object", []),
+                "created_at": list_obj.get("created_at"),
+                "workspace_access": list_obj.get("workspace_access")
+            })
+        
+        return {
+            "success": True,
+            "count": len(lists),
+            "lists": lists,
+            "message": f"Found {len(lists)} lists in workspace"
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to list lists: {str(e)}"
+        }
+
 @mcp.tool(description="[SECURE] get_list_entries - requires API key")
 def get_list_entries(api_key: str, list_identifier: str, filters: dict = None, limit: int = 50) -> dict:
     """
@@ -291,31 +337,45 @@ def get_list_entries(api_key: str, list_identifier: str, filters: dict = None, l
     try:
         # First, try to find the list by name if identifier is not a UUID
         list_id = list_identifier
+        list_name = list_identifier
         
         if "-" not in list_identifier or len(list_identifier) < 30:
-            # Probably a name, search for the list
-            lists_result = query_records("lists", {"name": {"$contains": list_identifier}}, limit=5)
+            # Probably a name, search for the list using the /lists endpoint
+            lists_result = make_attio_request("/lists", api_key=api_key)
             
-            if not lists_result.get("found") or not lists_result.get("records"):
+            if not lists_result.get("data"):
+                return {
+                    "success": False,
+                    "message": f"No lists found in workspace",
+                    "suggestion": "Check if lists exist in your Attio workspace"
+                }
+            
+            # Find matching list by name
+            matching_lists = []
+            for list_obj in lists_result["data"]:
+                if list_identifier.lower() in list_obj.get("name", "").lower():
+                    matching_lists.append(list_obj)
+            
+            if not matching_lists:
+                available_names = [l.get("name", "Unknown") for l in lists_result["data"]]
                 return {
                     "success": False,
                     "message": f"Could not find list matching '{list_identifier}'",
-                    "suggestion": "Use query_records('lists', {}) to see available lists"
+                    "available_lists": available_names,
+                    "suggestion": "Use one of the available list names"
                 }
             
-            if len(lists_result["records"]) > 1:
-                list_names = [l.get("name", {}).get("value", "Unknown") for l in lists_result["records"]]
+            if len(matching_lists) > 1:
+                list_names = [l.get("name", "Unknown") for l in matching_lists]
                 return {
                     "success": False,
-                    "message": f"Found {len(lists_result['records'])} lists matching '{list_identifier}': {', '.join(list_names)}",
+                    "message": f"Found {len(matching_lists)} lists matching '{list_identifier}': {', '.join(list_names)}",
                     "suggestion": "Be more specific or use the list ID directly"
                 }
             
-            list_record = lists_result["records"][0]
-            list_id = list_record.get("id")
-            list_name = list_record.get("name", {}).get("value", list_identifier)
-        else:
-            list_name = list_identifier
+            list_obj = matching_lists[0]
+            list_id = list_obj.get("id", {}).get("list_id")
+            list_name = list_obj.get("name", list_identifier)
         
         # Query list entries
         query_data = {"limit": limit}
@@ -474,14 +534,32 @@ def add_to_list(list_identifier: str, person_identifiers: list, entry_attributes
     try:
         # Get list ID
         if "-" not in list_identifier or len(list_identifier) < 30:
-            lists_result = query_records("lists", {"name": {"$contains": list_identifier}}, limit=1)
-            if not lists_result.get("found"):
+            # Search for the list using the /lists endpoint
+            lists_result = make_attio_request("/lists", api_key=api_key)
+            
+            if not lists_result.get("data"):
                 return {
                     "success": False,
-                    "message": f"Could not find list '{list_identifier}'"
+                    "message": f"No lists found in workspace"
                 }
-            list_id = lists_result["records"][0].get("id")
-            list_name = lists_result["records"][0].get("name", {}).get("value", list_identifier)
+            
+            # Find matching list by name
+            matching_lists = []
+            for list_obj in lists_result["data"]:
+                if list_identifier.lower() in list_obj.get("name", "").lower():
+                    matching_lists.append(list_obj)
+            
+            if not matching_lists:
+                available_names = [l.get("name", "Unknown") for l in lists_result["data"]]
+                return {
+                    "success": False,
+                    "message": f"Could not find list '{list_identifier}'",
+                    "available_lists": available_names
+                }
+            
+            list_obj = matching_lists[0]
+            list_id = list_obj.get("id", {}).get("list_id")
+            list_name = list_obj.get("name", list_identifier)
         else:
             list_id = list_identifier
             list_name = list_identifier
@@ -974,6 +1052,7 @@ def get_server_info(api_key: str) -> dict:
                     "get_object_schema - See available attributes for an object",
                     "query_records - Query ANY object with ANY filters",
                     "create_note - Add notes to ANY object type",
+                    "list_all_lists - List all available lists in workspace",
                     "get_list_entries - Get entries from a list with filtering",
                     "update_list_entry - Update list entry attributes (status, etc.)",
                     "add_to_list - Add people to lists (bulk supported)",
