@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 # Load environment variables (for local development)
 load_dotenv()
 
-mcp = FastMCP("Poke-Attio CRM Integration")
+mcp = FastMCP("Attio CRM Integration")
 
 # Attio API configuration - API key will be passed by Poke client
 ATTIO_API_KEY = None  # Will be set dynamically by Poke client
@@ -953,7 +953,7 @@ def add_note_to_company(company_name: str, note_content: str, note_title: str = 
             "message": f"Failed to add note to company: {str(e)}"
         }
 
-@mcp.tool(description="Get information about the Poke-Attio MCP server and available tools")
+@mcp.tool(description="Get information about the Attio MCP server and available tools")
 def get_server_info() -> dict:
     """
     Get information about the MCP server, workspace, and available tools.
@@ -963,7 +963,7 @@ def get_server_info() -> dict:
         workspace_info = make_attio_request("/self")
         
         return {
-            "server_name": "Poke-Attio CRM Integration",
+            "server_name": "Attio CRM Integration",
             "version": "2.0.0",
             "description": "MCP server for Attio CRM - Generic tools for ANY object type and ANY filters",
             "environment": os.environ.get("ENVIRONMENT", "development"),
@@ -996,7 +996,7 @@ def get_server_info() -> dict:
         }
     except Exception as e:
         return {
-            "server_name": "Poke-Attio CRM Integration",
+            "server_name": "Attio CRM Integration",
             "version": "2.0.0",
             "description": "MCP server for Attio CRM - Generic tools for ANY object type and ANY filters",
             "environment": os.environ.get("ENVIRONMENT", "development"),
@@ -1009,7 +1009,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     host = "0.0.0.0"
     
-    print(f"Starting Poke-Attio MCP server on {host}:{port}")
+    print(f"Starting Attio MCP server on {host}:{port}")
     print("Server is running with live Attio CRM integration - ready for testing with Poke!")
     print(f"API Key configured: {'Yes' if ATTIO_API_KEY else 'No'}")
     

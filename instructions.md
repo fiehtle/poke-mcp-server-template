@@ -1,7 +1,7 @@
-# Poke-Attio Project Instructions
+# Attio MCP Server Project Instructions
 
 ## Project Overview
-**Project Name:** Poke-Attio (Poke + Attio CRM Integration)  
+**Project Name:** Attio MCP Server (Poke + Attio CRM Integration)  
 **Purpose:** Create an MCP integration that allows Poke AI assistant to serve as a natural language UI layer on top of Attio CRM  
 **Type:** MCP Server Integration  
 **Context:** Enable seamless reading and writing of CRM data through conversational interactions with Poke, eliminating the need to context-switch to Attio's web interface for common operations.
