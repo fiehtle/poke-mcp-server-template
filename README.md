@@ -1,4 +1,4 @@
-# Attio MCP Server
+# Poke-Attio MCP Server
 
 A comprehensive [FastMCP](https://github.com/jlowin/fastmcp) server that integrates Attio CRM with Poke AI assistant, enabling natural language interactions with your CRM data through intelligent, self-documenting tools.
 
@@ -42,7 +42,7 @@ A comprehensive [FastMCP](https://github.com/jlowin/fastmcp) server that integra
 
 ```bash
 git clone <your-repo-url>
-cd attio-mcp-server
+cd poke-attio-mcp-server
 ```
 
 2. **Create environment:**

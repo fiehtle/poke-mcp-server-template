@@ -214,11 +214,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml.miniconda.exe
-
-# Security and Deployment Reports (contains sensitive URLs and deployment details)
-SECURITY_TEST_REPORT.md
-POKE_INTEGRATION_GUIDE.md
-
-# Internal Development Notes (specific to our exploration and development process)
-DOCUMENTATION_INSIGHTS.md
-ENHANCEMENT_SUMMARY.md
