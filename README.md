@@ -13,7 +13,7 @@ The official Attio MCP is great for semantic CRM workflows, but the REST API inc
 - `attio_capabilities` (assistant-facing discovery/selection guide)
 - Identity: `attio_identify`
 - Lists: `attio_list_lists`, `attio_get_list`, `attio_create_list`, `attio_update_list`
-- Entries: `attio_query_list_entries`, `attio_create_list_entry`, `attio_assert_list_entry`, `attio_get_list_entry`, `attio_update_list_entry`, `attio_delete_list_entry`, `attio_get_list_entry_attribute_values`
+- Entries: `attio_query_list_entries`, `attio_create_list_entry`, `attio_assert_list_entry`, `attio_add_people_to_list_by_email`, `attio_resolve_people_record_ids_by_email`, `attio_get_list_entry`, `attio_update_list_entry`, `attio_delete_list_entry`, `attio_get_list_entry_attribute_values`
 - Attributes: `attio_list_attributes`, `attio_get_attribute`, `attio_list_select_options`, `attio_list_statuses`
 - Comments/Threads: `attio_list_threads`, `attio_get_thread`, `attio_create_comment_on_thread`, `attio_create_comment_on_record`, `attio_create_comment_on_entry`, `attio_get_comment`, `attio_delete_comment`
 - Webhooks: `attio_list_webhooks`, `attio_get_webhook`, `attio_create_webhook`, `attio_update_webhook`, `attio_delete_webhook`

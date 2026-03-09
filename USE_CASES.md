@@ -1,6 +1,6 @@
 # Render + Poke Acceptance Use Cases
 
-Last updated: 2026-03-05
+Last updated: 2026-03-09
 
 ## 1) Deploy On Render
 
@@ -53,6 +53,12 @@ Prompt:
 Expected:
 Attribute definitions returned.
 
+6. Resolve person IDs from emails
+Prompt:
+`Use "attio-complement" and run attio_resolve_people_record_ids_by_email with emails=["<known_email>"].`
+Expected:
+At least one result with `status="ok"` and a `record_id`.
+
 ## 4) Controlled Write Tests (Optional)
 
 Only run these against a dedicated test list.
@@ -61,15 +67,21 @@ Only run these against a dedicated test list.
 Prompt:
 `Use "attio-complement" and run attio_create_list with name="MCP Test List", api_slug="mcp_test_list", parent_object="people", workspace_access="read-and-write".`
 
-2. Add entry
+2. Add entry from email (recommended for assistants)
+Prompt:
+`Use "attio-complement" and run attio_add_people_to_list_by_email with list="mcp_test_list", emails=["<known_email>"], entry_values={}.`
+Expected:
+One successful result with `entry_id`.
+
+3. Add entry from known record ID (low-level fallback)
 Prompt:
 `Use "attio-complement" and run attio_create_list_entry using list="mcp_test_list", parent_object="people", parent_record_id="<person_record_uuid>", entry_values={}.`
 
-3. Update entry
+4. Update entry
 Prompt:
 `Use "attio-complement" and run attio_update_list_entry for that entry_id with entry_values={<attribute_slug>: <value>}.`
 
-4. Delete entry
+5. Delete entry
 Prompt:
 `Use "attio-complement" and run attio_delete_list_entry for that entry_id.`
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -77,6 +78,130 @@ def build_comment_data(
     return data
 
 
+def _normalize_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if "@" not in normalized:
+        raise ValueError(f"Invalid email address: {email}")
+    return normalized
+
+
+def _is_uuid_like(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F-]{32,36}", value.strip()))
+
+
+def _extract_list_id(list_obj: dict[str, Any]) -> str:
+    list_id = (list_obj.get("id") or {}).get("list_id")
+    if not isinstance(list_id, str) or not list_id:
+        raise ValueError("List payload is missing id.list_id.")
+    return list_id
+
+
+def resolve_list_metadata(list_identifier: str) -> dict[str, str]:
+    response = call_attio("GET", "/v2/lists")
+    all_lists = response.get("data")
+    if not isinstance(all_lists, list) or not all_lists:
+        raise ValueError("No lists available in this workspace.")
+
+    query = list_identifier.strip().lower()
+    exact_matches: list[dict[str, Any]] = []
+    partial_matches: list[dict[str, Any]] = []
+
+    for candidate in all_lists:
+        name = str(candidate.get("name") or "")
+        api_slug = str(candidate.get("api_slug") or "")
+        list_id = str((candidate.get("id") or {}).get("list_id") or "")
+
+        name_l = name.lower()
+        slug_l = api_slug.lower()
+        id_l = list_id.lower()
+
+        if query in {name_l, slug_l, id_l}:
+            exact_matches.append(candidate)
+            continue
+
+        if not _is_uuid_like(query) and query and (query in name_l or query in slug_l):
+            partial_matches.append(candidate)
+
+    matches = exact_matches or partial_matches
+    if not matches:
+        available = [str(item.get("name") or item.get("api_slug") or "unknown") for item in all_lists[:20]]
+        raise ValueError(
+            f"List '{list_identifier}' was not found. Available lists include: {', '.join(available)}."
+        )
+
+    if len(matches) > 1:
+        options = []
+        for match in matches[:10]:
+            option_name = str(match.get("name") or "unknown")
+            option_slug = str(match.get("api_slug") or "unknown")
+            option_id = str((match.get("id") or {}).get("list_id") or "unknown")
+            options.append(f"{option_name} (slug={option_slug}, id={option_id})")
+        raise ValueError(
+            f"List identifier '{list_identifier}' is ambiguous. Matches: {', '.join(options)}."
+        )
+
+    selected = matches[0]
+    parent_objects = selected.get("parent_object")
+    if not isinstance(parent_objects, list) or not parent_objects:
+        raise ValueError("Could not determine parent_object for the selected list.")
+
+    if len(parent_objects) > 1:
+        raise ValueError(
+            "Selected list supports multiple parent objects. "
+            "Use attio_create_list_entry/attio_assert_list_entry with explicit parent_object."
+        )
+
+    parent_object = parent_objects[0]
+    if not isinstance(parent_object, str) or not parent_object:
+        raise ValueError("List parent_object is invalid.")
+
+    return {
+        "list_id": _extract_list_id(selected),
+        "list_name": str(selected.get("name") or ""),
+        "api_slug": str(selected.get("api_slug") or ""),
+        "parent_object": parent_object,
+    }
+
+
+def resolve_people_record_by_email(email: str) -> dict[str, Any]:
+    normalized_email = _normalize_email(email)
+    query = call_attio(
+        "POST",
+        "/v2/objects/people/records/query",
+        body={"filter": {"email_addresses": normalized_email}, "limit": 2},
+    )
+    rows = query.get("data")
+    if not isinstance(rows, list) or not rows:
+        return {"status": "not_found", "email": normalized_email}
+
+    if len(rows) > 1:
+        record_ids = [
+            str((row.get("id") or {}).get("record_id") or "")
+            for row in rows
+            if str((row.get("id") or {}).get("record_id") or "")
+        ]
+        return {
+            "status": "ambiguous",
+            "email": normalized_email,
+            "record_ids": record_ids,
+        }
+
+    record = rows[0]
+    record_id = (record.get("id") or {}).get("record_id")
+    if not isinstance(record_id, str) or not record_id:
+        return {
+            "status": "invalid_response",
+            "email": normalized_email,
+            "message": "Attio returned a record without id.record_id.",
+        }
+
+    return {
+        "status": "ok",
+        "email": normalized_email,
+        "record_id": record_id,
+    }
+
+
 @mcp.tool(
     description=(
         "Return wrapper categories and usage guidance so assistants can pick the best tool before "
@@ -104,6 +229,8 @@ def attio_capabilities() -> dict[str, Any]:
                 "attio_query_list_entries",
                 "attio_create_list_entry",
                 "attio_assert_list_entry",
+                "attio_add_people_to_list_by_email",
+                "attio_resolve_people_record_ids_by_email",
                 "attio_get_list_entry",
                 "attio_update_list_entry",
                 "attio_delete_list_entry",
@@ -263,6 +390,131 @@ def attio_assert_list_entry(
         }
     }
     return call_attio("PUT", f"/v2/lists/{list}/entries", body=body)
+
+
+@mcp.tool(
+    description=(
+        "Resolve people by exact email and add them to a people list without requiring record IDs. "
+        "Defaults to assert mode (PUT) to avoid duplicate memberships."
+    )
+)
+def attio_add_people_to_list_by_email(
+    list: str,
+    emails: list[str],
+    entry_values: dict[str, Any] | None = None,
+    mode: Literal["assert", "create"] = "assert",
+) -> dict[str, Any]:
+    list_meta = resolve_list_metadata(list)
+    if list_meta["parent_object"] != "people":
+        raise ValueError(
+            f"List '{list_meta['list_name'] or list}' has parent_object='{list_meta['parent_object']}'. "
+            "Use attio_create_list_entry/attio_assert_list_entry for non-people lists."
+        )
+
+    seen: set[str] = set()
+    normalized_emails: list[str] = []
+    for email in emails:
+        normalized = _normalize_email(email)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_emails.append(normalized)
+
+    if not normalized_emails:
+        raise ValueError("Provide at least one email.")
+
+    results: list[dict[str, Any]] = []
+    success_count = 0
+
+    for email in normalized_emails:
+        resolution = resolve_people_record_by_email(email)
+        status = resolution.get("status")
+
+        if status != "ok":
+            results.append(
+                {
+                    "email": email,
+                    "success": False,
+                    "status": status,
+                    "details": {k: v for k, v in resolution.items() if k != "status"},
+                }
+            )
+            continue
+
+        record_id = str(resolution["record_id"])
+        payload = {
+            "data": {
+                "parent_object": "people",
+                "parent_record_id": record_id,
+                "entry_values": entry_values or {},
+            }
+        }
+
+        try:
+            if mode == "assert":
+                response = call_attio("PUT", f"/v2/lists/{list_meta['list_id']}/entries", body=payload)
+            else:
+                response = call_attio("POST", f"/v2/lists/{list_meta['list_id']}/entries", body=payload)
+
+            entry_id = ((response.get("data") or {}).get("id") or {}).get("entry_id")
+            success_count += 1
+            results.append(
+                {
+                    "email": email,
+                    "success": True,
+                    "record_id": record_id,
+                    "entry_id": entry_id,
+                    "mode": mode,
+                }
+            )
+        except RuntimeError as exc:
+            results.append(
+                {
+                    "email": email,
+                    "success": False,
+                    "record_id": record_id,
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "list": {
+            "id": list_meta["list_id"],
+            "name": list_meta["list_name"],
+            "api_slug": list_meta["api_slug"],
+        },
+        "mode": mode,
+        "attempted": len(normalized_emails),
+        "succeeded": success_count,
+        "failed": len(normalized_emails) - success_count,
+        "results": results,
+    }
+
+
+@mcp.tool(
+    description=(
+        "Resolve one or more exact emails to people record IDs using "
+        "POST /v2/objects/people/records/query."
+    )
+)
+def attio_resolve_people_record_ids_by_email(emails: list[str]) -> dict[str, Any]:
+    seen: set[str] = set()
+    normalized_emails: list[str] = []
+    for email in emails:
+        normalized = _normalize_email(email)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_emails.append(normalized)
+
+    if not normalized_emails:
+        raise ValueError("Provide at least one email.")
+
+    results = [resolve_people_record_by_email(email) for email in normalized_emails]
+    return {
+        "attempted": len(normalized_emails),
+        "results": results,
+    }
 
 
 @mcp.tool(description="Get a list entry by entry UUID (GET /v2/lists/{list}/entries/{entry_id}).")

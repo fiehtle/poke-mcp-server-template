@@ -1,6 +1,6 @@
 # Tools Coverage Matrix
 
-Last updated: 2026-03-05
+Last updated: 2026-03-09
 
 This document maps Attio capabilities across:
 
@@ -12,7 +12,8 @@ This document maps Attio capabilities across:
 
 1. Use official Attio MCP for semantic workflows (emails, semantic note/call search, workspace teams).
 2. Use this companion MCP for typed REST wrappers (lists, entries, attributes, comments/threads, webhooks, files).
-3. Use `attio_raw_request` only when no typed wrapper exists yet.
+3. For people-list membership from email only, prefer `attio_add_people_to_list_by_email`.
+4. Use `attio_raw_request` only when no typed wrapper exists yet.
 
 ## Capability Matrix
 
@@ -23,6 +24,7 @@ This document maps Attio capabilities across:
 | Record create/upsert | `create-record`, `upsert-record` | `attio_raw_request` | `POST/PUT /v2/objects/{object}/records` | Prefer official MCP for simple CRM prompts; raw for advanced schema cases. |
 | Lists CRUD | Not exposed | `attio_list_lists`, `attio_get_list`, `attio_create_list`, `attio_update_list` | `GET/POST /v2/lists`, `GET/PATCH /v2/lists/{list}` | Use companion MCP. |
 | List entries query + CRUD | Not exposed | `attio_query_list_entries`, `attio_create_list_entry`, `attio_assert_list_entry`, `attio_get_list_entry`, `attio_update_list_entry`, `attio_delete_list_entry`, `attio_get_list_entry_attribute_values` | `/v2/lists/{list}/entries*` | Use companion MCP. |
+| Add people to list from email (IDless) | Partial (`add-record-to-list` requires record ID) | `attio_add_people_to_list_by_email`, `attio_resolve_people_record_ids_by_email` | `POST /v2/objects/people/records/query`, `PUT|POST /v2/lists/{list}/entries` | Use companion MCP when assistants only have email strings and need deterministic ID resolution first. |
 | Attribute definitions / metadata | `list-attribute-definitions` (read) | `attio_list_attributes`, `attio_get_attribute`, `attio_list_select_options`, `attio_list_statuses` | `/v2/{target}/{identifier}/attributes*` | Use companion MCP when you need IDs/options/statuses for list/object schema work. |
 | Notes (metadata + semantic) | `search-notes-by-metadata`, `semantic-search-notes`, `get-note-body`, `create-note` | `attio_raw_request` | `GET/POST /v2/notes`, `GET/DELETE /v2/notes/{note_id}` | Prefer official MCP for semantic note retrieval. |
 | Tasks | `create-task`, `update-task` | `attio_raw_request` | `/v2/tasks*` | Prefer official MCP for common task workflows. |
@@ -50,6 +52,8 @@ This document maps Attio capabilities across:
 - `attio_query_list_entries` -> `POST /v2/lists/{list}/entries/query`
 - `attio_create_list_entry` -> `POST /v2/lists/{list}/entries`
 - `attio_assert_list_entry` -> `PUT /v2/lists/{list}/entries`
+- `attio_add_people_to_list_by_email` -> resolve email(s) via `POST /v2/objects/people/records/query`, then `PUT|POST /v2/lists/{list}/entries`
+- `attio_resolve_people_record_ids_by_email` -> `POST /v2/objects/people/records/query`
 - `attio_get_list_entry` -> `GET /v2/lists/{list}/entries/{entry_id}`
 - `attio_update_list_entry` -> `PATCH|PUT /v2/lists/{list}/entries/{entry_id}`
 - `attio_delete_list_entry` -> `DELETE /v2/lists/{list}/entries/{entry_id}`
